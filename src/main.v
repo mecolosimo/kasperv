@@ -1,5 +1,6 @@
 module main
 
+import os.input;
 import crypto.md5
 import readline { read_line }
 import encoding.hex
@@ -24,29 +25,37 @@ fn hasher(digest []u8) ![]u8 {
 	return res_hasher
 }
 
+fn kasper(passwd string) ![]u8 {
+	mut digest := md5.new()
+
+ 	digest.write(passwd.bytes()) or { panic('${err}') }
+	mut digest_one := digest.sum([])
+	println("md5 sum one: ${digest_one.hex()}") // .hex()
+	digest.reset()
+	digest.write(digest_one.hex().bytes()) or { panic('$err')}
+	mut digest_two := md5.sum([])
+
+	println("md5 one sum: ${digest_one[..5]}")
+	println("md5 sum two: ${digest_two.hex()}")
+
+	mut res_hasher := hasher(digest_two) or { panic('${err}') }
+	println('hasher: ${res_hasher}')
+
+	md_string4 := hex.encode(res_hasher) // returns a string
+	//md_string4 := hex.decode(res_hasher.bytestr().join_to_string[u8]([]u8{}, ':', fn (it u8) string {it.ascii_str()})) or { panic('${err}') }
+	println("hasher value: ${md_string4}")
+
+	return res_hasher
+}
+
 fn main() {
 	println('Kasper: a sit5 password recovery tool.')
 	println('')
 
-	input := read_line("Password: ")!
-	mut digest := md5.new()
-	println(input)
+	password_text := input("Enter passwprd:")
+	println(password_text.len)
 
-    digest.write(input.bytes()) or { assert false }
-	mut digest_one := digest.sum([])
-	println("md5 sum one: ${digest_one.hex()}")
-	mut digest_two := md5.sum(digest_one.hex().bytes())
-	println("md5 sum two: ${digest_two.hex()}")
-
-	//mut res_hasher := []u8{}
-	//hasher(digest_two, mut &res_hasher)
-	//println("hasher value: ${res_hasher}")
-	mut res_hasher := hasher(digest_two) or { panic('${err}') }
-	println('hasher: ${res_hasher}')
-
-	md_string4 := hex.encode(res_hasher) // returns string
-	//md_string4 := hex.decode(res_hasher.bytestr().join_to_string[u8]([]u8{}, ':', fn (it u8) string {it.ascii_str()})) or { panic('${err}') }
-	println("hasher value: ${md_string4}")
-	
-	//println(hasher( digest_two, mut &res_hasher))	
+	res := kasper(password_text) or { panic('${err}') }
+   
+	println(res)
 }
