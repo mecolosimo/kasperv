@@ -1,61 +1,137 @@
 module main
 
-import os.input;
+
+import encoding.hex
+//import io
+import os
+//import os.input
 import crypto.md5
 import readline { read_line }
-import encoding.hex
+import regex
+//import strings
 
-fn hasher(digest []u8) ![]u8 {
+const sit5_archiveversion = 5
+const sit5_id = [0xA5, 0xA5, 0xA5,0xA5]
+const sit5_archiveflags_14bytes = 0x10 	
+const sit5_archiveflags_20bytes = 0x20
+const sit5_archiveflags_crypted = 0x80
+const sit5_key_length = 5 /* 40 bits */
 
-	hex_str := "0123456789abcdef"
 
-	mut res_hasher := []u8{len: 10, cap: 10, init: 0}
-		
-	res_hasher[0] = hex_str[(digest[0] >> 4) & 0xf] 
-	res_hasher[1] = hex_str[(digest[0]) & 0xf]
-	res_hasher[2] = hex_str[(digest[1] >> 4) & 0xf]
-	res_hasher[3] = hex_str[(digest[1]) & 0xf]
-	res_hasher[4] = hex_str[(digest[2] >> 4) & 0xf]
-	res_hasher[5] = hex_str[(digest[2]) & 0xf]
-	res_hasher[6] = hex_str[(digest[3] >> 4) & 0xf]
-	res_hasher[7] = hex_str[(digest[3]) & 0xf]
-	res_hasher[8] = hex_str[(digest[4] >> 4) & 0xf]
-	res_hasher[9] = hex_str[(digest[4]) & 0xf] // 9
-
-	return res_hasher
+fn stuffit_md5(data []u8) ![]u8 {
+	mut sum := md5.sum(data).hex()
+	println("stuffit_MD5: ${sum} ${sum.bytes()}")
+	// bytes is wrong
+	mut stuffit := hex.decode(sum) or { panic('${err}') }
+	return stuffit[..sit5_key_length]
 }
 
-fn kasper(passwd string) ![]u8 {
-	mut digest := md5.new()
+fn kasper(passwd string, sit_file string) ![]u8 {
 
- 	digest.write(passwd.bytes()) or { panic('${err}') }
-	mut digest_one := digest.sum([])
-	println("md5 sum one: ${digest_one.hex()}") // .hex()
-	digest.reset()
-	digest.write(digest_one.hex().bytes()) or { panic('$err')}
-	mut digest_two := md5.sum([])
+	mut sit_file_cwd := os.abs_path(sit_file)
+	// debug
+	println(sit_file_cwd)
 
-	println("md5 one sum: ${digest_one[..5]}")
-	println("md5 sum two: ${digest_two.hex()}")
+	if !os.exists(sit_file_cwd) {
+		return error("SIT source path doesn't exist")
+	}
 
-	mut res_hasher := hasher(digest_two) or { panic('${err}') }
-	println('hasher: ${res_hasher}')
+	mut f := os.open(sit_file_cwd) or { panic('${err}') }
 
-	md_string4 := hex.encode(res_hasher) // returns a string
-	//md_string4 := hex.decode(res_hasher.bytestr().join_to_string[u8]([]u8{}, ':', fn (it u8) string {it.ascii_str()})) or { panic('${err}') }
-	println("hasher value: ${md_string4}")
+	// Read header
+ 	m := r'StuffIt'
+ 	mut re := regex.regex_opt(m) or { panic('${err}') }
+	// Read "magic" bytes.
+	l := f.read_bytes(7)
+	mut line := l.bytestr()
 
-	return res_hasher
+	sit5 := re.matches_string(line)
+	if !sit5 {
+		return error("Not a SIT5 archive!")
+	}
+
+	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
+	version := f.read_raw[u8]() or { panic('${err}') }
+	flags := f.read_raw[u8]() or { panic('${err}') }
+	// degbug
+	println("flags: ${flags}")
+
+	if version != sit5_archiveversion {
+		panic('NOT SIT version 5')
+	}
+
+	//fseek := 16 // v's file method are odd can't use read_bytes with seek!
+	f.seek(i64(sizeof(u8))*16, .current) or { panic('${err}')}
+	if flags&sit5_archiveflags_14bytes != 0{
+		f.seek(i64(sizeof(u8))*14, .current) or { panic('${err}') }
+		//fseek += 14
+	}
+
+	if flags&sit5_archiveflags_20bytes != 0 {
+		// skip over comment
+		f.seek(i64(sizeof(u32)), .current) or { panic('${err}') }
+		//fseek += 32
+	}
+
+	if flags&sit5_archiveflags_crypted == 0 {
+		// move this to an else
+		panic("Not encrypted!")
+	}
+
+	// Read encrypted password
+	hash_size := f.read_raw[u8]() or { panic("${err}")}
+	if hash_size != sit5_key_length {
+		panic("hashed key length wrong ${hash_size.hex()}!")
+	}
+	// v's file utils suck
+	mut archive_hash := []u8{len: 0, cap: sit5_key_length, init: 0}
+	for i :=0; i < sit5_key_length; i++ {
+		archive_hash << f.read_raw[u8]() or { panic("${err}")}
+	}
+	println("archive_hash: ${archive_hash}")
+
+	mut archive_key := stuffit_md5(passwd.bytes()) or { panic('${err}') }
+	mut hash := stuffit_md5(archive_key) or { panic('${err}')}
+
+	// debugging
+	println("password: ${passwd} ${passwd.bytes()}")
+	println("md5 archive_key ${archive_key.hex()} ${archive_key}")
+	println("md5 hash: ${hash}")
+
+	return hash
 }
 
 fn main() {
 	println('Kasper: a sit5 password recovery tool.')
 	println('')
 
-	password_text := input("Enter passwprd:")
-	println(password_text.len)
+	// How to make a variable in v?
+	mut password_text := []string{}
+	mut sit5_file := []string{}
 
-	res := kasper(password_text) or { panic('${err}') }
+	if os.args.len == 3 {
+		// get file name
+		sit5_file << os.args[1]
+		// get password
+		password_text << os.args[2]
+	} else if os.args.len == 2 {
+		// get file name from args
+		sit5_file << os.args[1]
+
+		// ask for password
+		password_text << read_line("Enter password:") or { panic('${err}') }
+		//println(password.len)
+	} else {
+		panic('Error: incomplete command')
+	}
+
+	sit5_file[0] = sit5_file[0].trim_space()
+
+	if sit5_file[0].trim_space().len == 0 {
+		panic("No sit!")
+	}
+	
+	res := kasper(password_text[0], sit5_file[0]) or { panic('${err}') }
    
 	println(res)
 }
