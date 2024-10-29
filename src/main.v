@@ -1,14 +1,12 @@
 module main
 
-
+import crypto.md5
 import encoding.hex
 import flag
-//import io
 import os
-//import os.input
-import crypto.md5
+import io
 import regex
-//import strings
+import time
 
 const sit5_archiveversion = 5
 const sit5_id = [0xA5, 0xA5, 0xA5,0xA5]
@@ -23,11 +21,12 @@ const debug = true
 @[version: '0.0.1']
 @[name: 'kasper']
 struct Config {
-	passwd		string @[short: p; xdoc: 'The password to try']
-	sit			string @[short: s; xdoc: 'The password protected SIT archive']
-	wildcard 	bool @[short: w; xdoc: 'Expand astericks in passwd']
-	help 		bool @[short: h; xdoc: 'Help']
-	debug		bool @[short: d; xdoc: 'Debug']
+	passwd		string 	@[short: p; xdoc: 'The password to try']
+	file		string 	@[short: f; xdoc: 'A password file with a password per line']
+	sit			string 	@[short: s; xdoc: 'The password protected SIT archive']
+	wildcard 	bool 	@[short: w; xdoc: 'Expand astericks in passwd']
+	help 		bool 	@[short: h; xdoc: 'Help']
+	debug		bool 	@[short: d; xdoc: 'Debug']
 }
 
 struct SitConfig {
@@ -228,13 +227,55 @@ fn kasper(config Config) ! {
 		println("archive_hash: ${archive_hash}")
 	}
 
-	kasper_config := SitConfig{
-		passwd:			config.passwd
-		archive_hash: 	archive_hash
-		wildcard: 		config.wildcard
-		debug:			config.debug
+	if config.passwd.len > 0 {
+		println('Checking ${config.passwd}')
+
+		kasper_config := SitConfig{
+			passwd:			config.passwd
+			archive_hash: 	archive_hash
+			wildcard: 		config.wildcard
+			debug:			config.debug
+		}
+
+		check_password(kasper_config) or { panic('${err}')}
 	}
-	check_password(kasper_config) or { panic('${err}')}
+
+	// check if password and file given is main
+	if config.file.trim_space().len > 0 {
+		println("Checking words in ${config.file}")
+
+		mut file_path := os.abs_path(config.file)
+
+		if !os.exists(file_path) {
+			return error("password file path doesn't exist")
+		}
+		
+		mut password_file := os.open(file_path) or { panic('${err}') }
+		mut reader := io.new_buffered_reader(reader: password_file) // not string_builder!
+		mut cnt := 0
+		mut sw := time.new_stopwatch()
+		sw.start()
+		for {
+			password := reader.read_line() or { break }	//could be cleaner
+			
+			if config.debug {
+				println('Checking: ${password}')
+			}
+
+			kasper_file_config := SitConfig{
+				passwd:			password.trim_space()
+				archive_hash: 	archive_hash
+				wildcard: 		false		// just use words as passwords
+				debug:			config.debug
+			}
+		
+			check_password(kasper_file_config) or { panic('${err}')}
+			cnt += 1
+		}
+
+		sw.stop()
+		println("Checked ${cnt} passwords in ${sw.elapsed()}") 
+	}
 }
 
 fn main() {
@@ -250,6 +291,7 @@ fn main() {
         documentation := flag.to_doc[Config](
 			fields: {
 				'sit':			'This specifics the location of the password protected SIT archive'
+				'file': 		'A password file with a password per line'
 				'passwd':		'This is the password to try'
 				'wildcard':		'This flag is to specify whether the passwd contains astericks that should be expanded'
 				'debug':		'This flag is to specify whether to display debug info'
@@ -266,6 +308,11 @@ fn main() {
 		panic("No sit file given!")
 	}
 	
+	// better way to check?
+	if config.passwd.len != 0 && config.file.trim_space().len != 0 {
+		panic("Expected password or file. NOT both!")
+	}
+
 	kasper(config) or { panic('${err}') }
 	println("Done")
 }

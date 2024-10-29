@@ -23,3 +23,8 @@ Running on all ASCII four letter passords ending with```oly```:
  ./kasperv -p*oly -sexample/holy.sit -w
  ```
 
+Using a word list
+
+```bash
+./kasperv -fexamples/wordlist.txt  -sexamples/holy.sit
+```
