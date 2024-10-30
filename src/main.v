@@ -147,6 +147,7 @@ fn check_password(config SitConfig) !bool {
 
 	// debugging
 	if config.debug {
+		println("") // for timer
 		println("password: ${passwd} ${passwd.bytes()}")
 		println("md5 archive_key ${archive_key.hex()} ${archive_key}")
 		println("md5 hash: ${hash}")
@@ -155,6 +156,7 @@ fn check_password(config SitConfig) !bool {
 
 	mut matches := false
 	if hash == config.archive_hash {
+		println("")
 		println("Match: ${passwd}")
 		return true
 	}
@@ -164,21 +166,25 @@ fn check_password(config SitConfig) !bool {
 
 fn kasper(config Config) ! {
 
-	mut sit_file_cwd := os.abs_path(config.sit)
+	mut sit_file_path := os.abs_path(config.sit)
 	// debug
 	if config.debug {
-		println(sit_file_cwd)
+		println(sit_file_path)
 	}
 
-	if !os.exists(sit_file_cwd) {
+	if !os.exists(sit_file_path) && os.is_file(sit_file_path) {
 		return error("SIT source path doesn't exist")
 	}
 
-	mut f := os.open(sit_file_cwd) or { panic('${err}') }
+	mut f := os.open(sit_file_path) or { panic('${err}') }
+	defer {
+		f.close()
+	}
 
 	// Read header
  	m := r'StuffIt'
  	mut re := regex.regex_opt(m) or { panic('${err}') }
+
 	// Read "magic" bytes.
 	l := f.read_bytes(7)
 	mut line := l.bytestr()
@@ -251,6 +257,10 @@ fn kasper(config Config) ! {
 		}
 		
 		mut password_file := os.open(file_path) or { panic('${err}') }
+		defer {
+			password_file.close()
+		}
+
 		mut reader := io.new_buffered_reader(reader: password_file) // not string_builder!
 		mut cnt := 0
 		mut sw := time.new_stopwatch()
@@ -270,11 +280,17 @@ fn kasper(config Config) ! {
 			}
 		
 			check_password(kasper_file_config) or { panic('${err}')}
+
+			// Simple old school way of showing progress
+			if cnt % 1000 == 0 {
+				print("Checked ${cnt} passwords in ${sw.elapsed()}\r") 
+			}
+
 			cnt += 1
 		}
 
 		sw.stop()
-		println("Checked ${cnt} passwords in ${sw.elapsed()}") 
+		println("Checked ${cnt} total passwords in ${sw.elapsed()}") 
 	}
 }
 
