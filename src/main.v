@@ -1,10 +1,13 @@
+// Copyright (c) 2024 Marc E. Colosimo. All rights reserved.
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
 module main
 
 import crypto.md5
 import encoding.hex
 import flag
-import os
 import io
+import os
 import regex
 import time
 
@@ -18,7 +21,7 @@ const sit5_key_length = 5 /* 40 bits */
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
-@[version: '0.0.1']
+@[version: '0.0.2']
 @[name: 'kasper']
 struct Config {
 	passwd		string 	@[short: p; xdoc: 'The password to try']
@@ -90,28 +93,31 @@ fn stuffit_md5(data []u8) ![]u8 {
 fn check_password(config SitConfig) !bool {
 
 	passwd := config.passwd
+	mut wi := config.index
 	if config.wildcard && passwd.contains('*') {
-		mut wi := -1
 		if config.index == -1 {
 			// index not set
 			wi = passwd.index('*') or { panic('${err}') }
 		} else {
-			wi = config.index
 			if wi < passwd.len {
 				if passwd[wi] == u8(42) && config.debug {
-					println("Index at *")
+					println("Index at * (${wi})")
+					wi = if wi >= passwd.len { passwd.len } else { wi }
 				}
 			}
 		}
-
 		// Are there more asterices?
-		// Bad naming of function, IMHO.
-		mut index := passwd.len
-		if wi < passwd.len {
-			index = index_of('passwd', '*', wi) or {
-				passwd.len
+		// Bad naming of function (index_after), IMHO.
+		mut next_index := config.index
+		if config.index == -1 {
+			next_index = index_of(passwd, '*', wi) or { passwd.len }
+		} else if wi < passwd.len {
+			if passwd[wi] == u8(42) {
+				next_index = index_of(passwd, '*', wi + 1) or {	passwd.len }
+			} else {
+				next_index = index_of(passwd, '*', wi) or {	passwd.len }
 			}
-		}
+		} 
 
 		if wi > -1 && wi < passwd.len {
 			mut m := false
@@ -129,10 +135,10 @@ fn check_password(config SitConfig) !bool {
 					archive_hash: 	config.archive_hash
 					wildcard: 		config.wildcard
 					debug:			config.debug
-					index: 			index
+					index: 			next_index
 				}
 
-				r := check_password(new_config) or { panic('${err}')}
+				r := check_password(new_config) or { panic('${err}') }
 
 				if r {
 					m = r
@@ -164,6 +170,39 @@ fn check_password(config SitConfig) !bool {
 	return matches
 }
 
+fn is_sit5(f os.File) bool {
+	// Read header (XADStuffIt5Parser.c)
+ 	m := r'StuffIt'
+ 	mut re := regex.regex_opt(m) or { panic('${err}') }
+
+	// Read "magic" bytes.
+	l := f.read_bytes(7)
+	mut line := l.bytestr()
+
+	sit5 := re.matches_string(line)
+	if !sit5 {
+		return false
+	} else {
+		return true
+	}
+	return false
+}
+
+fn is_sit(f os.File) bool {
+	mut bytes := []u8{len: 4, cap: 4, init: 0}
+	f.read_bytes_into(10, mut bytes) or { panic('${err}') }
+
+	//if(length<14) return false
+	if bytes == [u8(0x72),0x4c, 0x61, 0x75 ] {
+		// looks good so far, check more
+		f.read_bytes_into(0, mut bytes) or { panic('${err}') }
+		if bytes == [u8(0x53),0x49, 0x54, 0x21] {  // SIT!
+			return true
+		}
+	}
+	return false
+}
+
 fn kasper(config Config) ! {
 
 	mut sit_file_path := os.abs_path(config.sit)
@@ -181,53 +220,42 @@ fn kasper(config Config) ! {
 		f.close()
 	}
 
-	// Read header
- 	m := r'StuffIt'
- 	mut re := regex.regex_opt(m) or { panic('${err}') }
-
-	// Read "magic" bytes.
-	l := f.read_bytes(7)
-	mut line := l.bytestr()
-
-	sit5 := re.matches_string(line)
-	if !sit5 {
-		return error("Not a SIT5 archive!")
-	}
-
-	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
-	version := f.read_raw[u8]() or { panic('${err}') }
-	flags := f.read_raw[u8]() or { panic('${err}') }
-	
-	if config.debug {
-		println("flags: ${flags}")
-	}
-
-	if version != sit5_archiveversion {
-		panic('NOT SIT version 5')
-	}
-
-	// v's file method are odd can't use read_bytes with seek!
-	f.seek(i64(sizeof(u8))*16, .current) or { panic('${err}')}
-	if flags&sit5_archiveflags_14bytes != 0{
-		f.seek(i64(sizeof(u8))*14, .current) or { panic('${err}') }
-
-	}
-
-	if flags&sit5_archiveflags_20bytes != 0 {
-		// skip over comment
-		f.seek(i64(sizeof(u32)), .current) or { panic('${err}') }
-	}
-
-	if flags&sit5_archiveflags_crypted == 0 {
-		panic("Not encrypted!")
-	}
-
-	// Read encrypted password
 	mut archive_hash := []u8{len: sit5_key_length, cap: sit5_key_length, init: 0}
-	
-	// v's file utils suck so does c's :(
-	f.read_bytes_into(u64(f.tell() or { panic('${err}') }) + 1, 
-					  mut archive_hash) or { panic('${err}') }
+	if is_sit(f) {
+		println("SIT!")
+	} else if is_sit5(f) {
+		f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
+		version := f.read_raw[u8]() or { panic('${err}') }
+		flags := f.read_raw[u8]() or { panic('${err}') }
+		
+		if config.debug {
+			println("flags: ${flags}")
+		}
+
+		if version != sit5_archiveversion {
+			panic('NOT SIT version 5')
+		}
+
+		// v's file method are odd can't use read_bytes with seek!
+		f.seek(i64(sizeof(u8))*16, .current) or { panic('${err}')}
+		if flags&sit5_archiveflags_14bytes != 0{
+			f.seek(i64(sizeof(u8))*14, .current) or { panic('${err}') }
+		}
+
+		if flags&sit5_archiveflags_20bytes != 0 {
+			// skip over comment
+			f.seek(i64(sizeof(u32)), .current) or { panic('${err}') }
+		}
+
+		if flags&sit5_archiveflags_crypted == 0 {
+			panic("Not encrypted!")
+		}
+
+		// Read encrypted password
+		// v's file utils suck so does c's :(
+		f.read_bytes_into(u64(f.tell() or { panic('${err}') }) + 1, 
+						mut archive_hash) or { panic('${err}') }
+	}
 
 	if config.debug {
 		println("archive_hash: ${archive_hash}")
