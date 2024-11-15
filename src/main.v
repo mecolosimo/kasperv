@@ -11,6 +11,8 @@ import os
 import regex
 import time
 
+import sit
+
 const sit5_archiveversion = 5
 const sit5_id = [0xA5, 0xA5, 0xA5,0xA5]
 const sit5_archiveflags_14bytes = 0x10 	
@@ -90,7 +92,7 @@ fn stuffit_md5(data []u8) ![]u8 {
 	return stuffit[..sit5_key_length]
 }
 
-fn check_password(config SitConfig) !bool {
+fn check_5_password(config SitConfig) !bool {
 
 	passwd := config.passwd
 	mut wi := config.index
@@ -138,7 +140,7 @@ fn check_password(config SitConfig) !bool {
 					index: 			next_index
 				}
 
-				r := check_password(new_config) or { panic('${err}') }
+				r := check_5_password(new_config) or { panic('${err}') }
 
 				if r {
 					m = r
@@ -189,73 +191,64 @@ fn is_sit5(f os.File) bool {
 }
 
 fn is_sit(f os.File) bool {
+	// from XADStuffitParser.m:recognizeFileWithHandle
 	mut bytes := []u8{len: 4, cap: 4, init: 0}
 	f.read_bytes_into(10, mut bytes) or { panic('${err}') }
 
 	//if(length<14) return false
-	if bytes == [u8(0x72),0x4c, 0x61, 0x75 ] {
+	if bytes == [u8(0x72), 0x4c, 0x61, 0x75 ] { // rLau
 		// looks good so far, check more
 		f.read_bytes_into(0, mut bytes) or { panic('${err}') }
-		if bytes == [u8(0x53),0x49, 0x54, 0x21] {  // SIT!
+		if bytes == [u8(0x53), 0x49, 0x54, 0x21] {  // SIT!
 			return true
+		}
+		// Installer archives?
+		if bytes[0] == u8(83) && bytes[1] ==  u8(84) { // 'S' and 'T'
+			if bytes[2] == u8(105) && (bytes[3] == u8(110) || (bytes[3] >= u8(48) && bytes[3] <= u8(57))) { // 'i' and ('n' or '0' and '9'
+				return true 
+			} else if bytes[2] >= u8(48) && (bytes[2] <= u8(57) && (bytes[3] >= u8(48) && bytes[3] <= u8(57))) { // 0 and ('9' and ( '0' and '9'))
+				return true
+			}
 		}
 	}
 	return false
 }
 
-fn kasper(config Config) ! {
-
-	mut sit_file_path := os.abs_path(config.sit)
-	// debug
-	if config.debug {
-		println(sit_file_path)
-	}
-
-	if !os.exists(sit_file_path) && os.is_file(sit_file_path) {
-		return error("SIT source path doesn't exist")
-	}
-
-	mut f := os.open(sit_file_path) or { panic('${err}') }
-	defer {
-		f.close()
-	}
-
+// run kasper on sit5 art archive
+fn kaspser_five(config Config, mut f os.File) ! {
 	mut archive_hash := []u8{len: sit5_key_length, cap: sit5_key_length, init: 0}
-	if is_sit(f) {
-		println("SIT!")
-	} else if is_sit5(f) {
-		f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
-		version := f.read_raw[u8]() or { panic('${err}') }
-		flags := f.read_raw[u8]() or { panic('${err}') }
-		
-		if config.debug {
-			println("flags: ${flags}")
-		}
 
-		if version != sit5_archiveversion {
-			panic('NOT SIT version 5')
-		}
-
-		// v's file method are odd can't use read_bytes with seek!
-		f.seek(i64(sizeof(u8))*16, .current) or { panic('${err}')}
-		if flags&sit5_archiveflags_14bytes != 0{
-			f.seek(i64(sizeof(u8))*14, .current) or { panic('${err}') }
-		}
-
-		if flags&sit5_archiveflags_20bytes != 0 {
-			// skip over comment
-			f.seek(i64(sizeof(u32)), .current) or { panic('${err}') }
-		}
-
-		if flags&sit5_archiveflags_crypted == 0 {
-			panic("Not encrypted!")
-		}
-
-		// Read encrypted password
-		// v's file utils suck so does c's :(
-		f.read_bytes_into(u64(f.tell() or { panic('${err}') }) + 1, 
-						mut archive_hash) or { panic('${err}') }
+	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
+	version := f.read_raw[u8]() or { panic('${err}') }
+	flags := f.read_raw[u8]() or { panic('${err}') }
+	
+	if config.debug {
+		println("flags: ${flags}")
 	}
+
+	if version != sit5_archiveversion {
+		panic('NOT SIT version 5')
+	}
+
+	// v's file method are odd can't use read_bytes with seek!
+	f.seek(i64(sizeof(u8))*16, .current) or { panic('${err}')}
+	if flags&sit5_archiveflags_14bytes != 0{
+		f.seek(i64(sizeof(u8))*14, .current) or { panic('${err}') }
+	}
+
+	if flags&sit5_archiveflags_20bytes != 0 {
+		// skip over comment
+		f.seek(i64(sizeof(u32)), .current) or { panic('${err}') } 
+	}
+
+	if flags&sit5_archiveflags_crypted == 0 {
+		panic("Not encrypted!")
+	}
+
+	// Read encrypted password
+	// v's file utils suck so does c's :(
+	f.read_bytes_into(u64(f.tell() or { panic('${err}') }) + 1, 
+					mut archive_hash) or { panic('${err}') } 
 
 	if config.debug {
 		println("archive_hash: ${archive_hash}")
@@ -271,8 +264,8 @@ fn kasper(config Config) ! {
 			debug:			config.debug
 		}
 
-		check_password(kasper_config) or { panic('${err}')}
-	}
+		check_5_password(kasper_config) or { panic('${err}')}
+	} 
 
 	// check if password and file given is main
 	if config.file.trim_space().len > 0 {
@@ -307,7 +300,7 @@ fn kasper(config Config) ! {
 				debug:			config.debug
 			}
 		
-			check_password(kasper_file_config) or { panic('${err}')}
+			check_5_password(kasper_file_config) or { panic('${err}')}
 
 			// Simple old school way of showing progress
 			if cnt % 1000 == 0 {
@@ -319,6 +312,32 @@ fn kasper(config Config) ! {
 
 		sw.stop()
 		println("Checked ${cnt} total passwords in ${sw.elapsed()}") 
+	}
+}
+
+fn kasper(config Config) ! {
+
+	mut sit_file_path := os.abs_path(config.sit)
+
+	// debug
+	if config.debug {
+		println(sit_file_path)
+	}
+
+	if !os.exists(sit_file_path) && os.is_file(sit_file_path) {
+		return error("SIT source path doesn't exist")
+	}
+
+	mut f := os.open(sit_file_path) or { panic('${err}') }
+	defer {
+		f.close()
+	}
+
+	if is_sit(f) {
+		println("SIT!")
+		println("entrykey: ${sit.parse(mut f)!.entrykey}")
+	} else if is_sit5(f) {
+		kaspser_five(config, mut f)!
 	}
 }
 
