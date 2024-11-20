@@ -192,6 +192,7 @@ fn is_sit5(f os.File) bool {
 
 fn is_sit(f os.File) bool {
 	// from XADStuffitParser.m:recognizeFileWithHandle
+	// what versions produces this?
 	mut bytes := []u8{len: 4, cap: 4, init: 0}
 	f.read_bytes_into(10, mut bytes) or { panic('${err}') }
 

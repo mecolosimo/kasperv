@@ -19,31 +19,56 @@ const sit_filehdrsize 					= 112
 const sitfh_rsrcmethod					= 0		 // SITFH_COMPRMETHOD, xadUINT8 rsrc fork compression method
 const sitfh_datamethod					= 1		 // SITFH_COMPDMETHOD, xadUINT8 data fork compression method 
 const sitfh_namelen						= 2
+const sitfh_fname						= 3		 // SITFH_FNAME, xadUINT8 31 byte filename
 const sitfh_rsrclength 					= 84 	 // xadUINT32 decompressed rsrc length
 const sitfh_datalength					= 88  	 // xadUINT32 decompressed data length
 const sitfh_comprlength 				= 92  	 // xadUINT32 compressed rsrc length
 const sitfh_compdlength					= 96 	 // xadUINT32 compressed data length
 
+struct SitFile {
+pub:
+	name				string	@[xdoc: 'name of file']
+	rsrclength			u32 	@[xdoc: 'rsrc uncompressed length']
+	datalength			u32 	@[xdoc: 'data uncompressed length']
+
+	rsrc_comp_length	u32 	@[xdoc: 'rsrc compressed length']
+	data_comp_length	u32 	@[xdoc: 'data compressed length']
+
+	start				i64		@[xdoc: 'staring location in file']
+}
+
+struct SitFolder {
+pub:
+	files []SitFile
+}
+
 struct Sit {
 pub:
-	entrykey				string
+	entrykey				?string
 	is_stuffit_encrypted	bool
 	totalsize				u32
+	folders					[]SitFolder
 }
 
 // try to parse a SIT! file and return info
 pub fn parse(mut f os.File) !Sit {
-	mut entrykey := ""
+	mut entrykey := ?string(none)
 	mut is_stuffit_encrypted := false
 	mut header := []u8{len: sit_filehdrsize, cap: sit_filehdrsize, init: 0}
+	mut folders := []SitFolder{}
+	mut files  := []SitFile{}
 
-	// numfiles := 
+	// This is wrong!
+	numfiles := bytes.read_uint_16_be_at(f, u64(f.tell() or { panic('${err}')})) or { panic('${err}') } 
+	mut sit_numfiles := int(0) // found files
+
 	base := f.tell() or { panic('${err}') }
-
+	
+	// seems to be total size of sit: minus base
 	totalsize := bytes.read_uint_32_be_at(f, (sizeof(u8))*6) or { panic('${err}') } 
 	
 	// jump over stuff
-	f.seek(i64(sizeof(u8))*12, .current) or { panic('${err}') }
+	f.seek(i64(sizeof(u8))*22, .start) or { panic('${err}') }
 
 	for {
 		offset_in_file := f.tell() or { panic('${err}') }
@@ -60,23 +85,20 @@ pub fn parse(mut f os.File) !Sit {
 			// header CRC okay
 			rsrclength := bytes.uint_32_be(header, sitfh_rsrclength)	// was resourcelength
 			rsrcmethod := header[sitfh_rsrcmethod] 						// was resourcemethod
-			rsrccomplen := bytes.uint_32_be(header, sitfh_comprlength) 	// was resourcecomplen
+			rsrccomplen := bytes.uint_32_be(header, sitfh_comprlength) 	// was resourcecomplen, 
 			datacomplen := bytes.uint_32_be(header, sitfh_compdlength) 	// uncompressed data length
 			datalength := bytes.uint_32_be(header, sitfh_datalength)
 			datamethod := header[sitfh_datamethod]
-
+			
 			namelen := if header[sitfh_namelen] > 31 { 31 } else { header[sitfh_namelen] }
+			name := header[sitfh_fname .. namelen].bytestr()
 
 			start := f.tell() or { panic('${err}') }
-
-			println("namelen: ${namelen}")
-			println("start: ${start}")
-			println("datacomplen ${datacomplen}")
 
 			if datamethod&stuffit_folder_mask == stuffit_start_folder ||
 				rsrcmethod&stuffit_folder_mask == stuffit_start_folder
 			{
-				println("StuffItStartFolder!")
+				println("StuffItStartFolder: ${name}")
 				if datamethod&stuffit_folder_mask != 0 ||
 					rsrcmethod&stuffit_folder_mask != 0 {
 					println("Encrypted data")
@@ -88,10 +110,30 @@ pub fn parse(mut f os.File) !Sit {
 
 				// in the code
 				f.seek(i64(sizeof(u8))*start, .start) or { panic('${err}') }
+
 			} else if datamethod&stuffit_folder_mask == stuffit_end_folder ||
 						rsrcmethod&stuffit_folder_mask == stuffit_end_folder {
-				println("StuffItEndFolder!")
+				// creat/add folder
+				folders <<
+					SitFolder {
+						files: 	files
+					}
+				println("StuffItEndFolder: ${files.len}")
+				sit_numfiles = sit_numfiles + files.len
+				files.clear()
 			} else {
+				files << SitFile {
+					name:				name
+
+					rsrclength:			rsrclength
+					datalength:			datalength
+
+					rsrc_comp_length:	rsrccomplen
+					data_comp_length:	datacomplen
+
+					start:				start
+				}
+				println("File: ${files#[-1..]}")
 				mut entrykey_array :=  []u8{len: 16, cap: 16, init: 0}
 				if rsrclength != 0 {
 					if rsrcmethod&stuffit_encrypted_flag != 0 {
@@ -122,14 +164,28 @@ pub fn parse(mut f os.File) !Sit {
 			panic("Bad CRC")
 		}
 
-		if is_stuffit_encrypted && entrykey.len > 0 {
+		if is_stuffit_encrypted && entrykey != none{
 			panic("Not encrypted but got entrykey!")
 		}
 	}	// end bare for (while)
+
+	if is_stuffit_encrypted && entrykey == none {
+		println("Encryted but did not set entrykey")
+	}
+
+	// Check sit
+	mut total_found_files := 0
+	for folder in folders {
+		total_found_files = total_found_files + folder.files.len
+	}
+	if numfiles != total_found_files {
+		println("SIT should have ${numfiles}, but found ${total_found_files}")
+	}
 
 	return Sit{
 		entrykey: 				entrykey
 		is_stuffit_encrypted:	is_stuffit_encrypted
 		totalsize:				totalsize
-	}	
+		folders:				folders
+	}
 }

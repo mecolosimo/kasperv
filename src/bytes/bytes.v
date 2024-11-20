@@ -20,6 +20,13 @@ pub fn read_uint_32_le_at(f os.File, position u64) !u32 {
 	return result
 }
 
+// Read a 16 bit int in big endian order at given `position`
+pub fn read_uint_16_be_at(f os.File, position u64) !u32 {
+	bytes := f.read_bytes_at(2, position)
+	result := u32( u32(bytes[0]) << 8 ) | ( u32(bytes[1]) )
+	return result
+}
+
 // read a 32 bit int in big endian order at current position
 pub fn read_uint_32_be(f os.File ) !u32 {
 	return read_uint_32_be_at(f, u64(f.tell() or { panic('${err}') }) + 1)
