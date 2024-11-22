@@ -56,9 +56,9 @@ pub fn parse(mut f os.File) !Sit {
 	mut is_stuffit_encrypted := false
 	mut header := []u8{len: sit_filehdrsize, cap: sit_filehdrsize, init: 0}
 	mut folders := []SitFolder{}
-	mut files  := []SitFile{}
+	mut files := []SitFile{}	// Not trying to keep the hierarchy (much harder and we don't care yet)
 
-	// This is wrong!
+	// This is wrong! This is **NOT** the numfiles!
 	numfiles := bytes.read_uint_16_be_at(f, u64(f.tell() or { panic('${err}')})) or { panic('${err}') } 
 	mut sit_numfiles := int(0) // found files
 
@@ -73,7 +73,7 @@ pub fn parse(mut f os.File) !Sit {
 	for {
 		offset_in_file := f.tell() or { panic('${err}') }
 		if offset_in_file+sit_filehdrsize > totalsize+base {
-			// done
+			// done like loop
 			break
 		}
 		
@@ -99,6 +99,7 @@ pub fn parse(mut f os.File) !Sit {
 				rsrcmethod&stuffit_folder_mask == stuffit_start_folder
 			{
 				println("StuffItStartFolder: ${name}")
+				println("${header}")
 				if datamethod&stuffit_folder_mask != 0 ||
 					rsrcmethod&stuffit_folder_mask != 0 {
 					println("Encrypted data")
@@ -133,7 +134,7 @@ pub fn parse(mut f os.File) !Sit {
 
 					start:				start
 				}
-				println("File: ${files#[-1..]}")
+				//println("File: ${files#[-1..]}")
 				mut entrykey_array :=  []u8{len: 16, cap: 16, init: 0}
 				if rsrclength != 0 {
 					if rsrcmethod&stuffit_encrypted_flag != 0 {
@@ -164,9 +165,15 @@ pub fn parse(mut f os.File) !Sit {
 			panic("Bad CRC")
 		}
 
-		if is_stuffit_encrypted && entrykey != none{
-			panic("Not encrypted but got entrykey!")
+		if is_stuffit_encrypted && entrykey != none { 
+			// work around for https://github.com/vlang/v/issues/22936
+			if skey := entrykey {
+				if skey.len > 0 { 
+					panic("Not encrypted but got entrykey (${entrykey})!")
+				}
+			}
 		}
+
 	}	// end bare for (while)
 
 	if is_stuffit_encrypted && entrykey == none {
