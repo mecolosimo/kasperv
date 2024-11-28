@@ -37,6 +37,7 @@ pub fn read_uint_32_le(f os.File ) !u32 {
 	return read_uint_32_le_at(f, u64(f.tell() or { panic('${err}') }) + 1)
 }
 
+// read a 16 bit int in big endian order from buffer of u8 bytes
 pub fn uint_16_be(buffer []u8, index int) u16 {
 	return ( u16(buffer[index]) << 8) | ( u16(buffer[index + 1]) )
 }

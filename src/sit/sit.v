@@ -20,10 +20,12 @@ const sitfh_rsrcmethod					= 0		 // SITFH_COMPRMETHOD, xadUINT8 rsrc fork compre
 const sitfh_datamethod					= 1		 // SITFH_COMPDMETHOD, xadUINT8 data fork compression method 
 const sitfh_namelen						= 2
 const sitfh_fname						= 3		 // SITFH_FNAME, xadUINT8 31 byte filename
+const sitfh_numfiles					= 48
 const sitfh_rsrclength 					= 84 	 // xadUINT32 decompressed rsrc length
 const sitfh_datalength					= 88  	 // xadUINT32 decompressed data length
 const sitfh_comprlength 				= 92  	 // xadUINT32 compressed rsrc length
 const sitfh_compdlength					= 96 	 // xadUINT32 compressed data length
+
 
 struct SitFile {
 pub:
@@ -39,7 +41,10 @@ pub:
 
 struct SitFolder {
 pub:
-	files []SitFile
+	name				string			@[xdoc: 'name of folder']
+	files 				[]SitFile		@[xdoc: 'Files']
+	folders				[]SitFolder		@[xdoc: 'Folders']
+	numfiles			u16				@[xdoc: 'SIT number of files and folders']
 }
 
 struct Sit {
@@ -50,17 +55,48 @@ pub:
 	folders					[]SitFolder
 }
 
+fn count_files(folder SitFolder) int {
+	mut cnt := folder.files.len
+	for f in folder.folders {
+		cnt = cnt + count_files(f)
+	}
+	return cnt
+}
+
+// quick sit check
+fn check_sit(folders []SitFolder) bool {
+	mut rst := true
+	for folder in folders {
+		if folder.folders.len > 0 {
+			if !check_sit(folder.folders) {
+				rst = false
+			}
+		}
+		nfs := count_files(folder)
+		if folder.numfiles != nfs {
+			println("\tExpecting ${folder.numfiles} found ${nfs} under ${folder.name}")
+			rst = false
+		} else {
+			println("\tFoler ${folder.name} looks fine")
+		}
+	}
+	return rst
+}
+
 // try to parse a SIT! file and return info
 pub fn parse(mut f os.File) !Sit {
 	mut entrykey := ?string(none)
 	mut is_stuffit_encrypted := false
 	mut header := []u8{len: sit_filehdrsize, cap: sit_filehdrsize, init: 0}
-	mut folders := []SitFolder{}
-	mut files := []SitFile{}	// Not trying to keep the hierarchy (much harder and we don't care yet)
+	// Doing a Depth-First Seach (DFS), I think this is what the SIT is.
+	mut depth := u8(0)
+	mut folders := [][]SitFolder{len: 0xFF}	// Folders are "special" files
+	mut files := [][]SitFile{len: 0xFF}		// Trying to keep the hierarchy
 
 	// This is wrong! This is **NOT** the numfiles!
-	numfiles := bytes.read_uint_16_be_at(f, u64(f.tell() or { panic('${err}')})) or { panic('${err}') } 
-	mut sit_numfiles := int(0) // found files
+	// numfiles := bytes.read_uint_16_be_at(f, u64(f.tell() or { panic('${err}')})) or { panic('${err}') } 
+	mut sit_folder_name := []string{len: 0xFF}	// don't want to make fields in struct pub & mut
+	mut numfiles :=	[]u16{len: 0xFF}
 
 	base := f.tell() or { panic('${err}') }
 	
@@ -92,38 +128,51 @@ pub fn parse(mut f os.File) !Sit {
 			
 			namelen := if header[sitfh_namelen] > 31 { 31 } else { header[sitfh_namelen] }
 			name := header[sitfh_fname .. namelen].bytestr()
-
+			
 			start := f.tell() or { panic('${err}') }
 
 			if datamethod&stuffit_folder_mask == stuffit_start_folder ||
 				rsrcmethod&stuffit_folder_mask == stuffit_start_folder
 			{
-				println("StuffItStartFolder: ${name}")
-				println("${header}")
+				println("StuffItStartFolder")
 				if datamethod&stuffit_folder_mask != 0 ||
 					rsrcmethod&stuffit_folder_mask != 0 {
-					println("Encrypted data")
+					println("\tEncrypted data")
 					is_stuffit_encrypted = true
 				} else {
-					panic("SIT not encrypted!")
+					panic("\tSIT not encrypted!")
 					is_stuffit_encrypted = false
 				}
+
+				depth = depth + 1
+				numfiles[depth] = bytes.uint_16_be(header, sitfh_numfiles)	// includes folders :(
+				sit_folder_name[depth] = name
 
 				// in the code
 				f.seek(i64(sizeof(u8))*start, .start) or { panic('${err}') }
 
 			} else if datamethod&stuffit_folder_mask == stuffit_end_folder ||
 						rsrcmethod&stuffit_folder_mask == stuffit_end_folder {
-				// creat/add folder
-				folders <<
-					SitFolder {
-						files: 	files
+				// creat/add
+				sf := SitFolder {
+						name:		sit_folder_name[depth]
+						files: 		if files.len > 0 { files[depth] } else { []SitFile{} }
+						folders:	if folders.len > 0 { folders[depth] } else { []SitFolder{} }
+						numfiles:	numfiles[depth]
 					}
-				println("StuffItEndFolder: ${files.len}")
-				sit_numfiles = sit_numfiles + files.len
-				files.clear()
+				folders[depth - 1] << sf
+				println("StuffItEndFolder: ${files.len} ${sf.name} ${depth}")
+				println("\tFolder name ${sf.name}")
+				println("\tNumber files: ${sf.numfiles}")
+				println("\t\tFound files: ${sf.files.len}")
+				sit_folder_name[depth] = ""
+				if files.len >= depth { files[depth].clear() }
+				if folders.len >= depth { folders[depth].clear() }
+			
+				depth = depth - 1
 			} else {
-				files << SitFile {
+				// File
+				files[depth] << SitFile {
 					name:				name
 
 					rsrclength:			rsrclength
@@ -180,19 +229,20 @@ pub fn parse(mut f os.File) !Sit {
 		println("Encryted but did not set entrykey")
 	}
 
-	// Check sit
-	mut total_found_files := 0
-	for folder in folders {
-		total_found_files = total_found_files + folder.files.len
-	}
-	if numfiles != total_found_files {
-		println("SIT should have ${numfiles}, but found ${total_found_files}")
+	// Quick checking of sit
+	if folders[0].len > 0 {
+		//have something
+		if !check_sit(folders[0]) {
+			panic("Bad SIT")
+		}
+	} else {
+		println("Folders: ${folders}")
 	}
 
 	return Sit{
 		entrykey: 				entrykey
 		is_stuffit_encrypted:	is_stuffit_encrypted
 		totalsize:				totalsize
-		folders:				folders
+		folders:				folders[0]
 	}
 }
