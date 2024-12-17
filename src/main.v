@@ -12,6 +12,7 @@ import regex
 import time
 
 import sit
+import bytes
 
 const sit5_archiveversion = 5
 const sit5_id = [0xA5, 0xA5, 0xA5,0xA5]
@@ -193,21 +194,21 @@ fn is_sit5(f os.File) bool {
 fn is_sit(f os.File) bool {
 	// from XADStuffitParser.m:recognizeFileWithHandle
 	// what versions produces this?
-	mut bytes := []u8{len: 4, cap: 4, init: 0}
-	f.read_bytes_into(10, mut bytes) or { panic('${err}') }
+	mut sit_bytes := []u8{len: 4, cap: 4, init: 0}
+	f.read_bytes_into(10, mut sit_bytes) or { panic('${err}') }
 
 	//if(length<14) return false
-	if bytes == [u8(0x72), 0x4c, 0x61, 0x75 ] { // rLau
+	if sit_bytes == [u8(0x72), 0x4c, 0x61, 0x75 ] { // rLau
 		// looks good so far, check more
-		f.read_bytes_into(0, mut bytes) or { panic('${err}') }
-		if bytes == [u8(0x53), 0x49, 0x54, 0x21] {  // SIT!
+		f.read_bytes_into(0, mut sit_bytes) or { panic('${err}') }
+		if sit_bytes == [u8(0x53), 0x49, 0x54, 0x21] {  // SIT!
 			return true
 		}
 		// Installer archives?
-		if bytes[0] == u8(83) && bytes[1] ==  u8(84) { // 'S' and 'T'
-			if bytes[2] == u8(105) && (bytes[3] == u8(110) || (bytes[3] >= u8(48) && bytes[3] <= u8(57))) { // 'i' and ('n' or '0' and '9'
+		if sit_bytes[0] == u8(83) && sit_bytes[1] ==  u8(84) { // 'S' and 'T'
+			if sit_bytes[2] == u8(105) && (sit_bytes[3] == u8(110) || (sit_bytes[3] >= u8(48) && sit_bytes[3] <= u8(57))) { // 'i' and ('n' or '0' and '9'
 				return true 
-			} else if bytes[2] >= u8(48) && (bytes[2] <= u8(57) && (bytes[3] >= u8(48) && bytes[3] <= u8(57))) { // 0 and ('9' and ( '0' and '9'))
+			} else if sit_bytes[2] >= u8(48) && (sit_bytes[2] <= u8(57) && (sit_bytes[3] >= u8(48) && sit_bytes[3] <= u8(57))) { // 0 and ('9' and ( '0' and '9'))
 				return true
 			}
 		}
@@ -215,7 +216,19 @@ fn is_sit(f os.File) bool {
 	return false
 }
 
-// run kasper on sit5 art archive
+fn is_sit_zip(f os.File) bool {
+	// from XADZipParser.m
+	// usually with postfix of *.sit.zip
+	mut sit_bytes := bytes.read_uint_32_be_at(f, 0) or { panic('${err}') }
+
+	if sit_bytes == u32(0x504B0304) {
+		// might also be 0x504b0506 for strange archives
+		return true
+	}
+	return false
+}
+
+// run kasper on sit5 archive
 fn kaspser_five(config Config, mut f os.File) ! {
 	mut archive_hash := []u8{len: sit5_key_length, cap: sit5_key_length, init: 0}
 
@@ -318,7 +331,19 @@ fn kaspser_five(config Config, mut f os.File) ! {
 
 fn kasper(config Config) ! {
 
-	mut sit_file_path := os.abs_path(config.sit)
+	mut sit_file_path :=  if os.is_abs_path(config.sit) { 
+			config.sit 
+		} else { 
+			if config.sit[0] == u8(126) { // ! 
+			println("Expanding ~")
+				os.expand_tilde_to_home(config.sit)
+			} else { 
+				os.abs_path(config.sit)
+			}
+		}
+	if !os.is_file(sit_file_path) {
+		panic("${sit_file_path} is NOT a file!")
+	}
 
 	// debug
 	if config.debug {
@@ -339,6 +364,8 @@ fn kasper(config Config) ! {
 		println("entrykey: ${sit.parse(mut f)!.entrykey}")
 	} else if is_sit5(f) {
 		kaspser_five(config, mut f)!
+	} else if is_sit_zip(f) {
+		panic("Don't support zip sit archives!")
 	}
 }
 

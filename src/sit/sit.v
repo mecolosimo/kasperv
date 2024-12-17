@@ -13,13 +13,15 @@ const stuffit_folder_contains_encrypted = 0x10 // folder contains encrypted item
 const stuffit_start_folder = 0x20 // start of folder
 const stuffit_end_folder = 0x21 // end of folder
 const stuffit_folder_mask = (~(stuffit_encrypted_flag | stuffit_folder_contains_encrypted))
+const stuffit_numfile = 0x04 // number of files and direcorties at root
+// Consts for stuffit header
 const sitfh_hdrcrc = 110 // xadUINT16 crc of file header
 const sitfh_filedhrsize = 112
 const sitfh_rsrcmethod = 0 // SITFH_COMPRMETHOD, xadUINT8 rsrc fork compression method
 const sitfh_datamethod = 1 // SITFH_COMPDMETHOD, xadUINT8 data fork compression method
 const sitfh_namelen = 2
 const sitfh_fname = 3 // SITFH_FNAME, xadUINT8 31 byte filename
-const sitfh_numfiles = 48
+const sitfh_numfiles = 48 // was 48 le, now be
 const sitfh_parentoffset = 58 // xadUINT32 offset of parent entry */
 const sitfh_rsrclength = 84 // xadUINT32 decompressed rsrc length
 const sitfh_datalength = 88 // xadUINT32 decompressed data length
@@ -40,12 +42,14 @@ pub:
 
 struct SitFolder {
 pub:
-	name     string      @[xdoc: 'name of folder']
-	files    []SitFile   @[xdoc: 'Files']
-	folders  []SitFolder @[xdoc: 'Folders']
-	numfiles u16         @[xdoc: 'SIT number of files and folders']
-	offset   u32         @[xdoc: 'Offset (bytes) of header in file']
-	parent   u32         @[xdoc: 'Offset of parent\'s header in file']
+	name          string @[xdoc: 'name of folder']
+	numfiles      u16    @[xdoc: 'SIT number of files and folders']
+	offset        u32    @[xdoc: 'Offset (bytes) of header in file']
+	parent_offest u32    @[xdoc: 'Offset of parent\'s header in file']
+pub mut:
+	files         []&SitFile   @[xdoc: 'Files']
+	folders       []&SitFolder @[xdoc: 'Folders']
+	parent_folder ?&SitFolder  @[xdox: 'Parent folder ,if any']
 }
 
 struct Sit {
@@ -53,20 +57,13 @@ pub:
 	entrykey             ?string
 	is_stuffit_encrypted bool
 	totalsize            u32
-	folders              []SitFolder
-}
-
-// Returns count of files under directory
-fn count_files(folder SitFolder) int {
-	mut cnt := folder.files.len
-	for f in folder.folders {
-		cnt = cnt + count_files(f)
-	}
-	return cnt
+pub mut:
+	files []&SitFile  @[xdoc: 'Files']
+	root  ?&SitFolder @[xdoc: 'Root Folder']
 }
 
 // quick sit check
-fn check_sit(folders []SitFolder) bool {
+fn check_sit(folders []&SitFolder) bool {
 	mut rst := true
 	for folder in folders {
 		if folder.folders.len > 0 {
@@ -74,12 +71,12 @@ fn check_sit(folders []SitFolder) bool {
 				rst = false
 			}
 		}
-		nfs := count_files(folder)
+		nfs := folder.files.len + folder.folders.len
 		if folder.numfiles != nfs {
 			println('\tExpecting ${folder.numfiles} found ${nfs} under ${folder.name}')
 			rst = false
 		} else {
-			println('\tFolder ${folder.name} looks fine')
+			println('\tFolder ${folder.name} looks fine. Excepting ${nfs}')
 		}
 	}
 	return rst
@@ -88,26 +85,20 @@ fn check_sit(folders []SitFolder) bool {
 // try to parse a SIT! file and return info
 pub fn parse(mut f os.File) !Sit {
 	mut entrykey := ?string(none)
-	mut offset := []u32{len: 0xFF} // see https://github.com/vlang/v/issues/23089
 	mut is_stuffit_encrypted := false
 	mut header := []u8{len: sitfh_filedhrsize, cap: sitfh_filedhrsize, init: 0}
 	// Doing a Depth-First Seach (DFS), I think this is what the SIT is.
-	mut depth := u8(0)
-	mut root := ?SitFolder(none) // Top level folder
-	mut folders := [][]SitFolder{} // Folders are "special" files
-	mut folders_map := map[u32]SitFolder{}
-	mut files := [][]SitFile{}
+	mut root := ?&SitFolder(none)
+	mut current_folder := ?&SitFolder(none) // Current folder, could be root
 
-	// This is wrong! This is **NOT** the numfiles!
+	// This is wrong! This is **NOT** the numfiles! See below.
 	// numfiles := bytes.read_uint_16_be_at(f, u64(f.tell() or { panic('${err}')})) or { panic('${err}') }
-
-	mut sit_folder_name := []string{len: 0xFF} // don't want to make fields in struct pub & mut
-	mut numfiles := []u16{len: 0xFF}
-
 	base := f.tell() or { panic('${err}') }
 
 	// seems to be total size of sit: minus base
 	totalsize := bytes.read_uint_32_be_at(f, (sizeof(u8)) * 6) or { panic('${err}') }
+
+	root_numfiles := bytes.read_uint_16_be_at(f, stuffit_numfile) or { panic('${err}') } // num total files and folders in top level directory
 
 	// jump over stuff
 	f.seek(i64(sizeof(u8)) * 22, .start) or { panic('${err}') }
@@ -117,6 +108,18 @@ pub fn parse(mut f os.File) !Sit {
 		if offset_in_file + sitfh_filedhrsize > totalsize + base {
 			// done like loop
 			break
+		}
+
+		if root == none {
+			// Top level folder
+			root = &SitFolder{
+				name:     '<root>'
+				numfiles: root_numfiles
+				files:    []&SitFile{}
+				folders:  []&SitFolder{}
+				offset:   0
+			}
+			current_folder = root
 		}
 
 		// Read header
@@ -131,7 +134,6 @@ pub fn parse(mut f os.File) !Sit {
 			datacomplen := bytes.uint_32_be(header, sitfh_compdlength) // uncompressed data length
 			datalength := bytes.uint_32_be(header, sitfh_datalength)
 			datamethod := header[sitfh_datamethod]
-			mut parent_offset := u32(0)
 			namelen := if header[sitfh_namelen] > 31 { 31 } else { header[sitfh_namelen] }
 			name := header[sitfh_fname..sitfh_fname + namelen].bytestr()
 
@@ -139,7 +141,7 @@ pub fn parse(mut f os.File) !Sit {
 
 			if datamethod & stuffit_folder_mask == stuffit_start_folder
 				|| rsrcmethod & stuffit_folder_mask == stuffit_start_folder {
-				println('StuffItStartFolder ${name}')
+				println('StuffItStartFolder: ${name}')
 				if datamethod & stuffit_folder_mask != 0 || rsrcmethod & stuffit_folder_mask != 0 {
 					println('\tEncrypted data')
 					is_stuffit_encrypted = true
@@ -147,79 +149,57 @@ pub fn parse(mut f os.File) !Sit {
 					panic('\tSIT not encrypted!')
 					is_stuffit_encrypted = false
 				}
+				sf := &SitFolder{
+					name:          name
+					files:         []&SitFile{}
+					folders:       []&SitFolder{}
+					numfiles:      bytes.uint_16_be(header, sitfh_numfiles) // num total files under directory
+					offset:        u32(offset_in_file) // was i64
+					parent_offest: bytes.uint_32_be(header, sitfh_parentoffset) + u32(base)
+					parent_folder: current_folder
+				}
+				if mut cf := current_folder {
+					cf.folders << sf
+					current_folder = sf
+				} else {
+					panic('Current folder is none!!')
+				}
 
-				offset[depth] = u32(offset_in_file) // was i64offset[depth] = u32(offset_in_file) // was i64
-
-				depth = depth + 1
-				// numfiles[depth] = bytes.uint_16_be(header, sitfh_numfiles)
-				files << []SitFile{}
-
-				// sit_folder_name[depth] = name
-				numfiles << bytes.uint_16_be(header, sitfh_numfiles) // num total files under directory
-				sit_folder_name << name
-
-				parent_offset = bytes.uint_32_be(header, sitfh_parentoffset) + u32(base)
-
-				// in the code
+				// in the code (should be next header)
 				f.seek(i64(sizeof(u8)) * start, .start) or { panic('${err}') }
 			} else if datamethod & stuffit_folder_mask == stuffit_end_folder
 				|| rsrcmethod & stuffit_folder_mask == stuffit_end_folder {
-				// creat/add
-				println('StuffItEndFolder: ${sit_folder_name[sit_folder_name.len - 1]} ${files.len} ${depth}')
-				println('\tLen folder: ${folders.len}')
-				if offset[depth - 1] != 0 {
-					sf := SitFolder{
-						name:     sit_folder_name.pop()
-						files:    if files.len > 0 { files.pop() } else { []SitFile{} }
-						folders:  if folders.len > 0 { folders } else { []SitFolder{} }
-						numfiles: numfiles.pop()
-						offset:   offset[depth - 1]
-						parent:   parent_offset
-					}
-
-					println('\tFolder name ${sf.name}')
-					println('\tNumber files: ${sf.numfiles}')
-					println('\t\tFound files: ${sf.files.len}')
-					println('\tNumber folders: ${sf.folders.len}')
-
-					folders_map[offset[depth - 1]] = sf
-					if depth == 1 {
-						if root == none {
-							println('root: ${sf.folders}')
-							root = sf
-						} else {
-							panic('Root is already set!')
-						}
-					} else if folders.len > 0 {
-						folders[folders.len - 1] << sf
+				// finish creating folder, end folder header
+				if mut cf := current_folder {
+					println('StuffItEndFolder: ${name} to folder ${cf.name}')
+					if pf := cf.parent_folder {
+						current_folder = pf
 					} else {
-						// empty folder list?!?
-						println('\tFolder list empty')
-						// folders << [ sf ]
-						// folders_map[offset[depth - 1]].folders << sf
+						current_folder = root
 					}
-
-					// offset[depth - 1] = 0
 				} else {
-					panic('offset not set for depth ${depth - 1}!')
+					panic('current_folder is none!')
 				}
 
-				depth = depth - 1
+				// TODO: if datalength == 0 && rsrclength == 0
 			} else {
-				println('Adding file: ${name} ${files.len} at ${depth}')
 				// File
-				files[files.len - 1] << SitFile{
-					name: name
+				if mut cf := current_folder {
+					println('Adding file: ${name} to folder ${cf.name}')
+					cf.files << &SitFile{
+						name:       name
+						rsrclength: rsrclength
+						datalength: datalength
 
-					rsrclength: rsrclength
-					datalength: datalength
+						rsrc_comp_length: rsrccomplen
+						data_comp_length: datacomplen
 
-					rsrc_comp_length: rsrccomplen
-					data_comp_length: datacomplen
-
-					start: start
+						start: start
+					}
+				} else {
+					panic('current_folder not set!')
 				}
-				// println("File: ${files#[-1..]}")
+
 				mut entrykey_array := []u8{len: 16, cap: 16, init: 0}
 				if rsrclength != 0 {
 					if rsrcmethod & stuffit_encrypted_flag != 0 {
@@ -244,14 +224,13 @@ pub fn parse(mut f os.File) !Sit {
 					}
 				}
 
-				// TODO: if datalength == 0 && rsrclength == 0
-
+				// position ourself to get next header
 				f.seek(u64(sizeof(u8)) * start + datacomplen + rsrccomplen, .start) or {
 					panic('${err}')
 				}
 			}
 		} else {
-			panic('Bad CRC')
+			panic('Bad CRC: ${header} expecting ${bytes.uint_16_be(header, sitfh_hdrcrc)}')
 		}
 
 		if is_stuffit_encrypted && entrykey != none {
@@ -265,22 +244,21 @@ pub fn parse(mut f os.File) !Sit {
 	if is_stuffit_encrypted && entrykey == none {
 		println('Encryted but did not set entrykey')
 	}
-
-	// println(folders)
+	// dump(root)
 	// Quick checking of sit
-	if root != none {
-		// have something
-		if !check_sit(root.folders) {
+	// have something
+	if folder := root {
+		if !check_sit([folder]) {
+			dump(root)
 			panic('Bad SIT')
 		}
 	} else {
-		panic('No root folder!')
+		panic('Something gone wrong')
 	}
-
 	return Sit{
 		entrykey:             entrykey
 		is_stuffit_encrypted: is_stuffit_encrypted
 		totalsize:            totalsize
-		folders:              folders[0] // [0]
+		root:                 root
 	}
 }
