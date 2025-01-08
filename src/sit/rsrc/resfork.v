@@ -14,7 +14,7 @@ import bytes
 type ResType = []u8 // bytes, a byte is a type in builtin/int.v
 
 // Really name and type are in Mac OS Roman, which is mostly ASCII (128 of which are identical to ASCII)
-struct Resource {
+pub struct Resource {
 pub:
 	type  ResType @[required; xdoc: 'FourCC of the resource type.']
 	num   i32     @[required; xdoc: 'ID of this resource. Should be unique within the resource type.']
@@ -27,7 +27,7 @@ pub:
 }
 
 pub fn (r Resource) str() string {
-	return '${convert_mac_roman_to_utf8(r.type)}\t${r.num}'
+	return '${convert_mac_roman_to_utf8(r.type)}\tnum: ${r.num}'
 }
 
 pub fn (r Resource) desc() string {
@@ -43,7 +43,7 @@ pub fn (r Resource) name_str() string {
 	return convert_mac_roman_to_utf8(r.name)
 }
 
-struct Resource_Fork {
+pub struct Resource_Fork {
 pub mut:
 	tree							map[string]map[u32]Resource @[xdoc: 'Map of all resources in the resource fork.']	// ResType, map[i32]Resource{} -> ResType type_str(), map
 pub:
@@ -112,14 +112,14 @@ println("\tu_map_bytes: ${u_map_bytes}")
 				num_types += 1	// because for loop is not inclusive
 
         // can we put an end to these?
-        u_types := u_map_bytes[typelist_offset_in_map..]
+        // u_types := u_map_bytes[typelist_offset_in_map..]
         u_names := u_map_bytes[namelist_offset_in_map..]
         println("\tu_map_bytes size: ${u_map_bytes.len}")
         if num_types == 1 {
         	return none	// this is empty
         }
 
-        mut tree := map[string]map[int]Resource{}
+        mut tree := map[string]map[u32]Resource{}
         //mut order := []Resource{}
         mut offset_map := 30
         mut offset_data := 0
@@ -131,7 +131,7 @@ println("\tu_map_bytes: ${u_map_bytes}")
           offset_map += 2
           reslist_offset := bytes.uint_16_be(u_map_bytes, offset_map )
           offset_map += 2
-          println("\tres_type: ${convert_mac_roman_to_utf8(res_type)}")
+          //println("\tres_type: ${convert_mac_roman_to_utf8(res_type)}")
 
           if convert_mac_roman_to_utf8(res_type) in tree {
           	panic('${convert_mac_roman_to_utf8(res_type)} already processed!')
@@ -180,9 +180,26 @@ println("\tu_map_bytes: ${u_map_bytes}")
             }
 
             offset_data += res_size
+
+            println('\tAdding ${r}')
+            if r.type_str() in tree {
+            	if r.order in tree[r.type_str()] {
+             		panic("Idenical oder given!")
+             	} else {
+              	tree[r.type_str()][r.order] = r
+              }
+            } else {
+            	tree[r.type_str()][r.order] = r
+            }
           }
         }
-
+        //println('${tree}')
+        return Resource_Fork {
+        	tree: tree
+         	junk_nextresmap: junk_nextresmap
+          junk_filerefnum: junk_filerefnum
+          file_attributes: file_attributes
+        }
 			} else {
 				return none
 			}

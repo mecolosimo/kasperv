@@ -10,6 +10,7 @@ import bytes
 
 const stuffit_encrypted_flag = 0x80 // password protected bit
 const stuffit_folder_contains_encrypted = 0x10 // folder contains encrypted items bit
+const stuffit_method_mask = ~stuffit_encrypted_flag & 0x0f // used to determine encyption, added 0x0f
 const stuffit_start_folder = 0x20 // start of folder
 const stuffit_end_folder = 0x21 // end of folder
 const stuffit_folder_mask = (~(stuffit_encrypted_flag | stuffit_folder_contains_encrypted))
@@ -46,6 +47,8 @@ pub:
 	numfiles      u16    @[xdoc: 'SIT number of files and folders']
 	offset        u32    @[xdoc: 'Offset (bytes) of header in file']
 	parent_offest u32    @[xdoc: 'Offset of parent\'s header in file']
+	encrypted     bool   @[xdoc: 'Encrypted']
+	datamethod    u8     @[xdoc: 'Data encryption method']
 pub mut:
 	files         []&SitFile   @[xdoc: 'Files']
 	folders       []&SitFolder @[xdoc: 'Folders']
@@ -54,9 +57,8 @@ pub mut:
 
 struct Sit {
 pub:
-	entrykey             ?string
-	is_stuffit_encrypted bool
-	totalsize            u32
+	entrykey  ?string
+	totalsize u32
 pub mut:
 	files []&SitFile  @[xdoc: 'Files']
 	root  ?&SitFolder @[xdoc: 'Root Folder']
@@ -136,21 +138,23 @@ pub fn parse(mut f os.File) !Sit {
 			datamethod := header[sitfh_datamethod]
 			namelen := if header[sitfh_namelen] > 31 { 31 } else { header[sitfh_namelen] }
 			name := header[sitfh_fname..sitfh_fname + namelen].bytestr()
-
 			start := f.tell() or { panic('${err}') }
 
 			if datamethod & stuffit_folder_mask == stuffit_start_folder
 				|| rsrcmethod & stuffit_folder_mask == stuffit_start_folder {
 				println('StuffItStartFolder: ${name}')
 				if datamethod & stuffit_folder_mask != 0 || rsrcmethod & stuffit_folder_mask != 0 {
-					println('\tEncrypted data')
+					method := name_of_compression_method(datamethod & stuffit_method_mask)
+					println('\tEncrypted data: \n\t\tMethod: ${method}')
 					is_stuffit_encrypted = true
 				} else {
 					panic('\tSIT not encrypted!')
 					is_stuffit_encrypted = false
 				}
-				sf := &SitFolder{
+				mut sf := &SitFolder{
 					name:          name
+					encrypted:     is_stuffit_encrypted
+					datamethod:    datamethod
 					files:         []&SitFile{}
 					folders:       []&SitFolder{}
 					numfiles:      bytes.uint_16_be(header, sitfh_numfiles) // num total files under directory
@@ -172,7 +176,7 @@ pub fn parse(mut f os.File) !Sit {
 				// finish creating folder, end folder header
 				if mut cf := current_folder {
 					println('StuffItEndFolder: ${name} to folder ${cf.name}')
-					if pf := cf.parent_folder {
+					if mut pf := cf.parent_folder {
 						current_folder = pf
 					} else {
 						current_folder = root
@@ -256,9 +260,27 @@ pub fn parse(mut f os.File) !Sit {
 		panic('Something gone wrong')
 	}
 	return Sit{
-		entrykey:             entrykey
-		is_stuffit_encrypted: is_stuffit_encrypted
-		totalsize:            totalsize
-		root:                 root
+		entrykey:  entrykey
+		totalsize: totalsize
+		root:      root
+	}
+}
+
+// If known, return type of compression
+fn name_of_compression_method(method u8) ?string {
+	match method {
+		// was, method & 0x0f. Now expecting method to be method
+		0 { return 'StuffIt' } // was, None
+		1 { return 'RLE' }
+		2 { return 'Compress' }
+		3 { return 'Huffman' }
+		5 { return 'LZAH' }
+		6 { return 'Fixed Huffman' }
+		7 { return 'MW' }
+		// Jumps
+		13 { return 'LZ+Huffman' }
+		14 { return 'Installer' }
+		15 { return 'Arsenic' }
+		else { return none }
 	}
 }
