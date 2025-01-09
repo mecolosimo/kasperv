@@ -3,8 +3,6 @@
 // that can be found in the LICENSE file.
 module main
 
-import crypto.md5
-import encoding.hex
 import flag
 import io
 import os
@@ -18,162 +16,25 @@ const sit5_id = [0xA5, 0xA5, 0xA5,0xA5]
 const sit5_archiveflags_14bytes = 0x10
 const sit5_archiveflags_20bytes = 0x20
 const sit5_archiveflags_crypted = 0x80
-const sit5_key_length = 5 /* 40 bits */
 
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
 @[version: '0.0.2']
 @[name: 'kasper']
-struct Config {
+pub struct Config {
 	passwd		string 	@[short: p; xdoc: 'The password to try']
-	file		string 	@[short: f; xdoc: 'A password file with a password per line']
-	sit			string 	@[short: s; xdoc: 'The password protected SIT archive']
+	file			string 	@[short: f; xdoc: 'A password file with a password per line']
+	sit				string 	@[short: s; xdoc: 'The password protected SIT archive']
 	wildcard 	bool 	@[short: w; xdoc: 'Expand astericks in passwd']
-	mkey 		?string @[short: m; xdoc: 'MKey found in rsrc fork, will try to parse it out if not given.']
-	help 		bool 	@[short: h; xdoc: 'Help']
-	debug		bool 	@[short: d; xdoc: 'Debug']
-}
-
-struct SitConfig {
-pub:
-	sit				string
-	archive_hash	[]u8
-	wildcard 		bool
-	debug			bool
-pub mut:
-	passwd			string
-	index 			int = -1		@[xdoc: 'the index position of an asterix in the passwd']
-}
-
-// index_after returns the position of the input string p,
-// starting search from `from_index` position.
-@[direct_array_access]
-fn index_of(s string, p string, from_index ?int) ?int {
-	// based v's index_of and on https://docs.oracle.com/javase/6/docs/api/java/lang/String.html#indexOf(java.lang.String,%20int)
-	// and https://docs.python.org/3/library/stdtypes.html#str.find
-	// see issue #804
-	mut strt := 0
-	if from_index != none {
-		strt = from_index
-		if strt < 0 {
-			strt = 0
-		}
-	}
-	if p.len > s.len {
-			return none
-	}
-	if strt >= s.len {
-			return none
-	}
-	mut i := strt
-	for i < s.len {
-			mut j := 0
-			mut ii := i
-			for j < p.len &&
-				ii < s.len &&
-				unsafe { s.str[ii] == p.str[j] } {
-					j++
-					ii++
-			}
-			if j == p.len {
-					return i
-			}
-			i++
-	}
-	return none
-}
-
-@[inline]
-fn stuffit_md5(data []u8) ![]u8 {
-	mut sum := md5.sum(data).hex()
-	// sum.hex() is wrong. What is it?
-	mut stuffit := hex.decode(sum) or { panic('${err}') }
-	return stuffit[..sit5_key_length]
-}
-
-fn check_5_password(config SitConfig) !bool {
-	passwd := config.passwd
-	mut wi := config.index
-	if config.wildcard && passwd.contains('*') {
-		if config.index == -1 {
-			// index not set
-			wi = passwd.index('*') or { panic('${err}') }
-		} else {
-			if wi < passwd.len {
-				if passwd[wi] == u8(42) && config.debug {
-					println("Index at * (${wi})")
-					wi = if wi >= passwd.len { passwd.len } else { wi }
-				}
-			}
-		}
-		// Are there more asterices?
-		// Bad naming of function (index_after), IMHO.
-		mut next_index := config.index
-		if config.index == -1 {
-			next_index = index_of(passwd, '*', wi) or { passwd.len }
-		} else if wi < passwd.len {
-			if passwd[wi] == u8(42) {
-				next_index = index_of(passwd, '*', wi + 1) or {	passwd.len }
-			} else {
-				next_index = index_of(passwd, '*', wi) or {	passwd.len }
-			}
-		}
-
-		if wi > -1 && wi < passwd.len {
-			mut m := false
-			for i in 32 .. 127 { // space to ~
-				byte_c := u8(i)
-				mut p := passwd.bytes() // []u8, strings are not mutable
-				p[wi] = byte_c
-				new_passwd := p.bytestr() // back to string
-				if config.debug {
-					println("new_passwd: ${new_passwd}")
-				}
-
-				new_config := SitConfig{
-					passwd:		 	new_passwd
-					archive_hash: 	config.archive_hash
-					wildcard: 		config.wildcard
-					debug:			config.debug
-					index: 			next_index
-				}
-
-				r := check_5_password(new_config) or { panic('${err}') }
-
-				if r {
-					m = r
-				}
-			}
-			return m
-		} // end if
-	}
-
-	mut archive_key := stuffit_md5(passwd.bytes()) or { panic('${err}') }
-	mut hash := stuffit_md5(archive_key) or { panic('${err}')}
-
-	// debugging
-	if config.debug {
-		println("") // for timer
-		println("password: ${passwd} ${passwd.bytes()}")
-		println("md5 archive_key ${archive_key.hex()} ${archive_key}")
-		println("md5 hash: ${hash}")
-		println("archive_hash: ${config.archive_hash}")
-	}
-
-	mut matches := false
-	if hash == config.archive_hash {
-		println("")
-		println("Match: ${passwd}")
-		return true
-	}
-
-	return matches
+	mkey 			?string @[short: m; xdoc: 'MKey found in rsrc fork, will try to parse it out if not given.']
+	help 			bool 	@[short: h; xdoc: 'Help']
+	debug			bool 	@[short: d; xdoc: 'Debug']
 }
 
 // run kasper on sit5 archive
 fn kaspser_five(config Config, mut f os.File) ! {
-	mut archive_hash := []u8{len: sit5_key_length, cap: sit5_key_length, init: 0}
+	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
 	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
 	version := f.read_raw[u8]() or { panic('${err}') }
@@ -184,7 +45,7 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	}
 
 	if version != sit5_archiveversion {
-		panic('NOT SIT version 5')
+		panic('NOT SIT version 5: version ${version}')
 	}
 
 	// v's file method are odd can't use read_bytes with seek!
@@ -214,14 +75,9 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	if config.passwd.len > 0 {
 		println('Checking ${config.passwd}')
 
-		kasper_config := SitConfig{
-			passwd:			config.passwd
-			archive_hash: 	archive_hash
-			wildcard: 		config.wildcard
-			debug:			config.debug
-		}
+		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard, config.debug, config.passwd)
 
-		check_5_password(kasper_config) or { panic('${err}')}
+		sit.check_5_password(kasper_config) or { panic('${err}')}
 	}
 
 	// check if password and file given is main
@@ -250,14 +106,14 @@ fn kaspser_five(config Config, mut f os.File) ! {
 				println('Checking: ${password}')
 			}
 
-			kasper_file_config := SitConfig{
+			kasper_file_config := sit.SitConfig{
 				passwd:			password.trim_space()
 				archive_hash: 	archive_hash
 				wildcard: 		false		// just use words as passwords
 				debug:			config.debug
 			}
 
-			check_5_password(kasper_file_config) or { panic('${err}')}
+			sit.check_5_password(kasper_file_config) or { panic('${err}')}
 
 			// Simple old school way of showing progress
 			if cnt % 1000 == 0 {

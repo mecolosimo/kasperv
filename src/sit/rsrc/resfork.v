@@ -106,7 +106,7 @@ println("\tu_map_bytes: ${u_map_bytes}")
 				file_attributes := bytes.uint_16_be(u_map_bytes, 22 )
 
 				// u_map.unpack(">HHH")
-				typelist_offset_in_map := bytes.uint_16_be(u_map_bytes, 24)
+				//typelist_offset_in_map := bytes.uint_16_be(u_map_bytes, 24)
 				namelist_offset_in_map := bytes.uint_16_be(u_map_bytes, 26)
 				mut num_types := bytes.uint_16_be(u_map_bytes, 28)
 				num_types += 1	// because for loop is not inclusive
@@ -160,7 +160,7 @@ println("\tu_map_bytes: ${u_map_bytes}")
             if u_names.len >= res_name_offset && res_name_offset != 0xFFFF {
             	// pascal style-string
               len := u_names[res_name_offset .. res_name_offset + 1]
-              res_name = u_names[res_name_offset + 1 .. res_name_offset + 1 + len[0]]
+              res_name = u_names[res_name_offset + 1 .. res_name_offset + 1 + len[0]].clone()
             }
 
             // fetch resource data from data section
