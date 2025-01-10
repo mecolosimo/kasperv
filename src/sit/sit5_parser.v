@@ -25,9 +25,11 @@ pub fn check_5_password(config SitConfig) !bool {
 			wi = passwd.index('*') or { panic('${err}') }
 		} else {
 			if wi < passwd.len {
-				if passwd[wi] == u8(42) && config.debug {
-					println("Index at * (${wi})")
-					wi = if wi >= passwd.len { passwd.len } else { wi }
+				if passwd[wi] == u8(42) {
+					if config.debug {
+						println("Index at * (${wi})")
+					}
+					wi = if wi >= passwd.len { passwd.len } else { wi + 1}
 				}
 			}
 		}
@@ -36,7 +38,7 @@ pub fn check_5_password(config SitConfig) !bool {
 		mut next_index := config.index
 		if config.index == -1 {
 			next_index = index_of(passwd, '*', wi) or { passwd.len }
-		} else if wi < passwd.len {
+		} else if wi < passwd.len  {
 			if passwd[wi] == u8(42) {
 				next_index = index_of(passwd, '*', wi + 1) or {	passwd.len }
 			} else {
@@ -52,7 +54,7 @@ pub fn check_5_password(config SitConfig) !bool {
 				p[wi] = byte_c
 				new_passwd := p.bytestr() // back to string
 				if config.debug {
-					println("new_passwd: ${new_passwd}")
+					println("\tnew_character: ${i}\tnew_passwd: ${new_passwd}")
 				}
 
 				new_config := SitConfig{
@@ -77,20 +79,21 @@ pub fn check_5_password(config SitConfig) !bool {
 	mut hash := stuffit_md5(archive_key) or { panic('${err}')}
 
 	// debugging
-	if config.debug {
-		println("") // for timer
+	if config.debug && hash == config.archive_hash {
+		println("")
 		println("password: ${passwd} ${passwd.bytes()}")
+		println("passowd len: ${passwd.len}")
 		println("md5 archive_key ${archive_key.hex()} ${archive_key}")
 		println("md5 hash: ${hash}")
 		println("archive_hash: ${config.archive_hash}")
+		println("Index: ${wi}")
 	}
 
-	mut matches := false
 	if hash == config.archive_hash {
 		println("")
 		println("Match: ${passwd}")
 		return true
 	}
 
-	return matches
+	return false
 }
