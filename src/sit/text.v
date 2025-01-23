@@ -3,41 +3,59 @@
 // that can be found in the LICENSE file.
 module sit
 
-// index_after returns the position of the input string p,
-// starting search from `from_index` position.
-@[direct_array_access]
-pub fn index_of(s string, p string, from_index ?int) ?int {
-	// based on v's index_of and on
-	// https://docs.oracle.com/javase/6/docs/api/java/lang/String.html#indexOf(java.lang.String,%20int)
-	// and https://docs.python.org/3/library/stdtypes.html#str.find
-	// see issue #804
-	mut strt := 0
-	if from_index != none {
-		strt = from_index
-		if strt < 0 {
-			strt = 0
+fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int, search fn (string, SitConfig) !bool) !bool {
+	next_index := passwd.index_after('*', from_index)
+	if next_index > -1 && next_index < passwd.len {
+		if config.debug {
+			println('\tfound * at: ${next_index}\tfrom_index: ${from_index}\tdepth: ${depth}\tpasswd len: ${passwd.len}\tpaswd: ${passwd}')
 		}
-	}
-	if p.len > s.len {
-			return none
-	}
-	if strt >= s.len {
-			return none
-	}
-	mut i := strt
-	for i < s.len {
-			mut j := 0
-			mut ii := i
-			for j < p.len &&
-				ii < s.len &&
-				unsafe { s.str[ii] == p.str[j] } {
-					j++
-					ii++
+		mut m := false
+		for p in 32 .. 127 { // space to ~
+			byte_c := u8(p)
+			mut n := passwd.bytes() // []u8, strings are not mutable
+			n[next_index] = byte_c
+			new_passwd := n.bytestr() // back to string
+			if config.debug {
+				println("\tnew_character: ${byte_c}\tnew_passwd: ${new_passwd}\told passwd: ${passwd}")
 			}
-			if j == p.len {
-					return i
+			passwd_match := replace_asterix_at(config, new_passwd, next_index + 1, depth+1, search) or { panic('$err') }
+			if passwd_match {
+				m = true
 			}
-			i++
+		}
+		return m
+	} else {
+		return search(passwd, config)
 	}
-	return none
+}
+
+fn replace_asterix(config SitConfig, search fn (string, SitConfig) !bool) !bool {
+	if config.wildcard && config.passwd.contains('*') {
+		next_index := config.passwd.index_after('*', 0)
+		if next_index > -1 && next_index < config.passwd.len {
+			if config.debug {
+				println('\tfound * at: ${next_index}\tdepth: 0\tpasswd len: ${config.passwd.len}\tpasswd: ${config.passwd}')
+			}
+
+			mut m := false
+			for p in 32 .. 127 { // space to ~
+				byte_c := u8(p)
+				mut n := config.passwd.bytes() // []u8, strings are not mutable
+				n[next_index] = byte_c
+				new_passwd := n.bytestr() // back to string
+				if config.debug {
+					println("\tnew_character: ${byte_c}\tnew_passwd: ${new_passwd}\told password: ${config.passwd}")
+				}
+				passwd_match := replace_asterix_at(config, new_passwd, next_index + 1, 1, search) or { panic('${err}')}
+
+				if passwd_match {
+					m = true
+				}
+			}
+			return m
+		}
+	} else {
+		return search(config.passwd, config)
+	}
+	return false
 }

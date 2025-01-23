@@ -3,6 +3,7 @@
 // that can be found in the LICENSE file.
 module main
 
+import encoding.hex 
 import flag
 import io
 import os
@@ -23,10 +24,10 @@ const debug = true
 @[version: '0.0.2']
 @[name: 'kasper']
 pub struct Config {
-	passwd		string 	@[short: p; xdoc: 'The password to try']
+	passwd			string 	@[short: p; xdoc: 'The password to try']
 	file			string 	@[short: f; xdoc: 'A password file with a password per line']
 	sit				string 	@[short: s; xdoc: 'The password protected SIT archive']
-	wildcard 	bool 	@[short: w; xdoc: 'Expand astericks in passwd']
+	wildcard 		bool 	@[short: w; xdoc: 'Expand astericks in passwd']
 	mkey 			?string @[short: m; xdoc: 'MKey found in rsrc fork, will try to parse it out if not given.']
 	help 			bool 	@[short: h; xdoc: 'Help']
 	debug			bool 	@[short: d; xdoc: 'Debug']
@@ -75,9 +76,10 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	if config.passwd.len > 0 {
 		println('Checking ${config.passwd}')
 
-		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard, config.debug, config.passwd)
+		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard,
+										config.debug, config.passwd, none, none)
 
-		sit.check_5_password(kasper_config) or { panic('${err}')}
+		sit.check_sit5_password(kasper_config) or { panic('${err}')}
 	}
 
 	// check if password and file given is main
@@ -106,14 +108,12 @@ fn kaspser_five(config Config, mut f os.File) ! {
 				println('Checking: ${password}')
 			}
 
-			kasper_file_config := sit.SitConfig{
-				passwd:			password.trim_space()
-				archive_hash: 	archive_hash
-				wildcard: 		false		// just use words as passwords
-				debug:			config.debug
-			}
+			// new_config: really not need
+			kasper_file_config := sit.new_config(config.sit, archive_hash, config.wildcard,
+												 config.debug, config.passwd.trim_space(),
+												 none, none)
 
-			sit.check_5_password(kasper_file_config) or { panic('${err}')}
+			sit.check_sit5_password(kasper_file_config) or { panic('${err}')}
 
 			// Simple old school way of showing progress
 			if cnt % 1000 == 0 {
@@ -163,27 +163,39 @@ fn kasper(config Config) ! {
 		sit_r := sit.parse(mut f) or { panic("Couldn't parse SIT!") }
 		println("entrykey: ${sit_r.entrykey}")
 		mut mkey := ?[]u8(none)
-		if config.mkey == none {
-			println("MKey is none!")
+		if mk := config.mkey {
+			if mk.len % 2 == 0 {
+				mkey = hex.decode(mk) or { panic('Unable to decode given MKey: ${mk}')}
+			}
+		} else {
+			println("No given MKey! Looking for it in a rsrc file.")
 			// see if .rcrs file exists
 			res := rsrc.new_resource_fork(sit_file_path)
 			if r := res {
 				// Not none, see if MKey is there
 				if 'MKey' in r.tree { // bad does v support map interface?
 					mkey_rsrc := r.tree['MKey'].clone()
-						if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
-							println('Found ${mkey_rsrc[0]} ${mkey_rsrc[0].data}!')
-							mkey = mkey_rsrc[0].data.clone()
-						}
+					if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
+						println('Found ${mkey_rsrc[0]} ${mkey_rsrc[0].data}!')
+						mkey = mkey_rsrc[0].data.clone()
+					} else {
+						dump(mkey_rsrc)
+						panic('Found rsrc but not MKey resource!')
+					}
 				} else {
 					panic('No MKey in rsrc fork!')
 				}
 			} else {
 				panic('No MKey found or given!')
 			}
-		}
+		} 
 		if mk := mkey {
-			println('ok')
+			sit.check_sit_password(sit.new_config(
+				config.sit, []u8{}, config.wildcard, 
+				config.debug, config.passwd, 
+				mk, sit_r))!
+		} else {
+			panic('encpyted but NO MKey found!')
 		}
 	} else if sit.is_sit5(f) {
 		kaspser_five(config, mut f)!

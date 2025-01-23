@@ -79,18 +79,29 @@ pub fn int_32_be(buffer []u8, index int) i32 {
 	return i32(result)
 }
 
-// wright a 32 bit int in big endian order into u8 bytes buffer
-@[inline]
-pub fn be_uint_32(mut buffer []u8, index int, value u32) u32 {
-	buffer[index] = u8(value >> 24)
-	buffer[index + 1] = u8(value >> 16)
-	buffer[index + 2] = u8(value >> 8)
-	buffer[index + 3] = u8(value)
-	return uint_32_be(buffer, index)
-}
-
 // read a 32 bit int in little endian order from buffer of u8 bytes
 @[inline]
 pub fn uint_32_le(buffer []u8, index int) u32 {
 	return (u32(buffer[index + 3]) << 24) | (u32(buffer[index + 2]) << 16) | (u32(buffer[index + 1]) << 8) | (u32(buffer[index]))
+}
+
+
+// from CSHandle.h
+
+// Convert a u32 into little endian order into buffer of u8 bytes
+@[inline] 
+pub fn set_uint_32_le(mut b []u8, index int, val u32) {
+	b[3 + index] = u8((val >> 24) & 0xff)
+	b[2 + index] = u8((val >> 16) & 0xff)
+	b[1 + index] = u8((val >> 8) & 0xff)
+	b[index] = u8(val & 0xff)
+}
+
+// Convert a u32 into big endian order into buffer of u8 bytes
+@[inline] 
+pub fn set_uint_32_be(mut b []u8, index int, val u32) {
+	b[3 + index] = u8(val & 0xff)
+	b[2 + index] = u8((val >> 8) & 0xff)
+	b[1 + index] = u8((val >> 16) & 0xff)
+	b[index] = u8((val >> 24)& 0xff)
 }

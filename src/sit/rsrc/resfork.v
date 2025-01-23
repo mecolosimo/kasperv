@@ -27,7 +27,7 @@ pub:
 }
 
 pub fn (r Resource) str() string {
-	return '${convert_mac_roman_to_utf8(r.type)}\tnum: ${r.num}'
+	return '`${convert_mac_roman_to_utf8(r.type)}` num: ${r.num}'
 }
 
 pub fn (r Resource) desc() string {
@@ -83,8 +83,8 @@ pub fn new_resource_fork(path string) ?Resource_Fork {
 			 	data_length := bytes.read_uint_32_be_at(f, 8) or { panic('${err}') }
 				map_length := bytes.read_uint_32_be_at(f, 12) or { panic('${err}') }
 
-				println('\tdata_offset:0x${data_offset:X}\tdata_length:0x${data_length:X}')
-				println('\tmap_offset:0x${map_offset:X}\tmap_length:0x${map_length:X}')
+				//println('\tdata_offset:0x${data_offset:X}\tdata_length:0x${data_length:X}')
+				//println('\tmap_offset:0x${map_offset:X}\tmap_length:0x${map_length:X}')
 
 				if data_offset + data_length > fi.size || map_offset + map_length > fi.size {
 					panic("offsets/lengths in header are nonsense")
@@ -110,7 +110,7 @@ pub fn new_resource_fork(path string) ?Resource_Fork {
 				// can we put an end to these?
 				// u_types := u_map_bytes[typelist_offset_in_map..]
 				u_names := u_map_bytes[namelist_offset_in_map..]
-				println("\tu_map_bytes size: ${u_map_bytes.len}")
+				//println("\tu_map_bytes size: ${u_map_bytes.len}")
 				if num_types == 1 {
 					return none	// this is empty
 				}
