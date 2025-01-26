@@ -25,15 +25,19 @@ mut:
 struct CSBlockStreamHandle {
 	CSInputBufferAlloc
 mut:
-	streampos		u32 // default = 0
+	streampos		u32
 }
 
 @[noinit]
 struct XADStuffItDESHandle {
 	CSBlockStreamHandle
+	key			[]u8					@[required] // len: 16 (4 x 4 bytes)
 mut:
-	key			[]u8	@[required] // len: 8
-	block		[]u8	@[required] // len: 8
+	block		[]u8					@[required] // len: 8
+	a			u32			
+	b			u32						
+	c			u32						
+	d			u32						
 	ks 			&StuffItDESKeySchedule	@[required]
 }
 
@@ -188,12 +192,27 @@ const des_sptrans := [
 pub fn (mut des XADStuffItDESHandle) init_with_handle(fh os.File, pos u32) {
 	des.fh = fh
 	des.streampos = pos
+	des.a = bytes.uint_32_be(des.key, 0)
+	des.b = bytes.uint_32_be(des.key, 4)
+	des.c = bytes.uint_32_be(des.key, 8)
+	des.d = bytes.uint_32_be(des.key, 12)
 }
 
+// This produces decryted u32 (8 bytes) based on the current state of the handle (previous opterations influence this)
+// pos is the position in the file (this has to be after the pos before/init)
 pub fn (mut des XADStuffItDESHandle) produce_block_at_offset(pos u32) u32 {
 	// Original code didn't use pos!!! 
 
-	if fh := des.fh {
+	if mut fh := des.fh {
+
+		if pos < des.streampos {
+			panic('cannot go backwards, pos `${pos}` must be equal or greater than previous `${des.streampos}`')
+		}
+
+		// jump to pos
+		fh.seek(i64(pos), .start) or { panic('${err}') }
+		des.streampos = pos
+
 		// check if in file!
 		if fh.eof() {
 			panic('At EOF!!')
@@ -203,26 +222,21 @@ pub fn (mut des XADStuffItDESHandle) produce_block_at_offset(pos u32) u32 {
 			panic('block length is NOT 8!')
 		} 
 
-		a := bytes.uint_32_be(des.key, 0)
-		b := bytes.uint_32_be(des.key, 4)
-		c := bytes.uint_32_be(des.key, 8)
-		d := bytes.uint_32_be(des.key, 12)
-
 		fh.read_bytes_into(pos, mut des.block) or { panic('${err}') }
 
-		left 	:= 	bytes.uint_32_be(des.block, 0)
+		left 	:= 	bytes.uint_32_be(des.block, 0)  // left=CSUInt32BE(&block[0]);
 		right 	:= 	bytes.uint_32_be(des.block, 4)
-		l := left^a^c
-		r := right^b^d
+		l := left^des.a^des.c
+		r := right^des.b^des.d
 
-		bytes.set_uint_32_le(mut des.block, 0, l)
-		bytes.set_uint_32_le(mut des.block, 4, r)
+		bytes.set_uint_32_be(mut des.block, 0, l)
+		bytes.set_uint_32_be(mut des.block, 4, r)
 
-		bytes.set_uint_32_le(mut des.key, 8, d)
-		bytes.set_uint_32_le(mut des.key, 12, rotate_right(left^right^a^b^d, 1))
+		des.c = des.d
+		des.d = rotate_right(left^right^des.a^des.b^des.d, 1)
 		//println('des.block: ${des.block} ${l} ${r}')
 
-		return 8 // why?!? _blocklength
+		return 8 // why?!? _blocklength if successful returns that read 8 bytes
 	} else {
 		panic('No file handle!?!')
 	}

@@ -170,24 +170,21 @@ fn kasper(config Config) ! {
 		} else {
 			println("No given MKey! Looking for it in a rsrc file.")
 			// see if .rcrs file exists
-			res := rsrc.new_resource_fork(sit_file_path)
-			if r := res {
-				// Not none, see if MKey is there
-				if 'MKey' in r.tree { // bad does v support map interface?
-					mkey_rsrc := r.tree['MKey'].clone()
-					if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
-						println('Found ${mkey_rsrc[0]} ${mkey_rsrc[0].data}!')
-						mkey = mkey_rsrc[0].data.clone()
-					} else {
-						dump(mkey_rsrc)
-						panic('Found rsrc but not MKey resource!')
-					}
+			res := rsrc.new_resource_fork_from_file(sit_file_path) or { panic('No MKey found or given!') }
+			// Not none, see if MKey is there
+			if 'MKey' in res.tree { // bad does v support map interface?
+				mkey_rsrc := res.tree['MKey'].clone()
+				if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
+					println('Found ${mkey_rsrc[0]} ${mkey_rsrc[0].data}!')
+					mkey = mkey_rsrc[0].data.clone()
 				} else {
-					panic('No MKey in rsrc fork!')
+					dump(mkey_rsrc)
+					panic('Found rsrc but not MKey resource!')
 				}
 			} else {
-				panic('No MKey found or given!')
+				panic('No MKey in rsrc fork!')
 			}
+		
 		} 
 		if mk := mkey {
 			sit.check_sit_password(sit.new_config(

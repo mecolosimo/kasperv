@@ -6,8 +6,9 @@ module sit
 
 import os
 import crc
-import bytes
 
+import bytes
+import rsrc
 import utils
 
 const stuffit_encrypted_flag = 0x80 	// password protected bit
@@ -84,6 +85,10 @@ pub mut:
 	root  ?&SitFolder 			@[xdoc: 'Root Folder']
 }
 
+pub fn (f &SitFile) str() string {
+	return '${f.name}\t${f.data_comp_length}\t${f.rsrc_comp_length}'
+}
+
 // quick sit check
 fn check_sit(folders []&SitFolder) bool {
 	mut rst := true
@@ -120,33 +125,51 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 				if sit_r := config.sit {
 					if kf := sit_r.kasper_file {
 						if kf.rsrc {
-							println('Decrypting rsrc fork!')
-							mut rsrc_data := []u8
-							// try to decrpt
-							start := u32(kf.file.start + kf.file.data_comp_length)
-							mut fh := os.open(config.sit_file) or { panic('${err}') }
-							defer {
-								fh.close()
-							}
-							dh.init_with_handle(fh, start)
-							for p := start; p < int(start + kf.file.rsrc_comp_length); p += 8{
-								if dh.produce_block_at_offset(p) == 8 {
-									rsrc_data << dh.block
+							if pf := kf.file.parent_folder {
+								println('Decrypting rsrc fork of ${kf.file.name}!')
+								mut block := []u8
+								// try to decrpt
+								start := u32(kf.file.start -16)	// back up to header for encryption
+								//start := u32(kf.file.start + kf.file.data_comp_length)
+								mut fh := os.open(config.sit_file) or { panic('${err}') }
+								defer {
+									fh.close()
 								}
-								if rsrc_data.len > 32 {
-									if pf := kf.file.parent_folder {
-										if (pf.datamethod & stuffit_method_mask) == 0 {
-											println('Got something!')
-										} else {
-											println('Unsupported compression method: ${name_of_compression_method(pf.datamethod & stuffit_method_mask)}')
+								inlength := kf.file.data_comp_length
+								//inlength := kf.file.rsrc_comp_length
+								if inlength % 8 != 0 {
+									panic('Bad inlength: ${inlength}')
+								}
+								padding := kf.file.datapadding
+								outlength := inlength - padding
+								dh.init_with_handle(fh, start)
+								println('start: 0X${start:X}\t0X${start + kf.file.data_comp_length:X}\tOX${start + inlength + padding:X}')
+								for p := start; p < start + inlength; p += 8 {
+									if dh.produce_block_at_offset(p) == 8 {
+										block << dh.block
+									}
+								}
+								println('data len: ${block.len} ${block.bytestr()}')
+								if block.len > 32 {
+									if (pf.datamethod & stuffit_method_mask) == 0 {
+										// try to see if valid
+										res := rsrc.new_resource_fork_from_buffer(block) or { 
+											println('${block}')
+											println(err)
+											return false
 										}
+										println('Possibly match ${passwd}\t${res}')
 									} else {
-										panic('No parent_fold! Unknown compression method.')
+										println('Unsupported compression method: ${name_of_compression_method(pf.datamethod & stuffit_method_mask)}')
 									}
 								} else {
+									println('res len: ${block.len}')
 									return false  // could check shannon H
 								}
+							} else {
+								panic('No parent_fold! Unknown compression method.')
 							}
+							
 						} else {
 							println('Not implement yet')
 						}
@@ -298,7 +321,7 @@ pub fn parse(mut f os.File) !Sit {
 				|| rsrcmethod & stuffit_folder_mask == stuffit_start_folder {
 				//println('StuffItStartFolder: ${name}')
 				if datamethod & stuffit_folder_mask != 0 || rsrcmethod & stuffit_folder_mask != 0 {
-					method := name_of_compression_method(datamethod & stuffit_method_mask)
+					//method := name_of_compression_method(datamethod & stuffit_method_mask)
 					//println('\tEncrypted data: \n\t\tMethod: ${method}')
 					is_stuffit_encrypted = true
 				} else {
@@ -323,7 +346,7 @@ pub fn parse(mut f os.File) !Sit {
 					panic('Current folder is none!!')
 				}
 
-				// in the code (should be next header)
+				// in the code
 				f.seek(i64(sizeof(u8)) * start, .start) or { panic('${err}') }
 			} else if datamethod & stuffit_folder_mask == stuffit_end_folder
 				|| rsrcmethod & stuffit_folder_mask == stuffit_end_folder {
@@ -358,6 +381,7 @@ pub fn parse(mut f os.File) !Sit {
 
 						parent_folder: current_folder
 					}
+					println(cf.files[cf.files.len -1])
 				} else {
 					panic('current_folder not set!')
 				}
