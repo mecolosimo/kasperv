@@ -211,7 +211,6 @@ pub fn (mut des XADStuffItDESHandle) produce_block_at_offset(pos u32) u32 {
 
 		// jump to pos
 		fh.seek(i64(pos), .start) or { panic('${err}') }
-		des.streampos = pos
 
 		// check if in file!
 		if fh.eof() {
@@ -223,6 +222,7 @@ pub fn (mut des XADStuffItDESHandle) produce_block_at_offset(pos u32) u32 {
 		} 
 
 		fh.read_bytes_into(pos, mut des.block) or { panic('${err}') }
+		des.streampos = pos + 8
 
 		left 	:= 	bytes.uint_32_be(des.block, 0)  // left=CSUInt32BE(&block[0]);
 		right 	:= 	bytes.uint_32_be(des.block, 4)
@@ -267,7 +267,7 @@ fn nibble(key []u8, n int) u32 {
 	if key.len != 8 {
 		panic('key is NOT []int{len: 8}!')
 	}
-	return u32( (key[(n & 0x0f) >> 1] >> (((n ^ 1) & 1) << 2)) & 0x0f)
+	return u32( u32(key[(n & 0x0f) >> 1] >> (u32((n ^ 1) & 1) << 2)) & 0x0f)
 } 
 
 // Takes mut []int len 8
@@ -305,7 +305,7 @@ fn encrypt(mut left &u32, right u32, subkey []u32) {
 	if subkey.len != 2 {
 		println('Excepting len 2 for subkey!')
 	}
-	u := right ^ subkey[0]
+	u := u32(right ^ subkey[0])
 	t := rotate_right(right, 4) ^ subkey[1]
 
 	left ^=	des_sptrans[0][(u>>2)&0x3f] ^
@@ -396,13 +396,13 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 			// Verify the password.
 			mut verifyblock := [u8(0),0,0,0,0,0,0,4]
 			for i := 0; i < 4; i++ {
-				verifyblock[i] = archiveiv[i]
+				verifyblock[i] = archiveiv[i]  // only the first 4 will match
 			}
-
+			
 			stuffit_des_setkey(archivekey, mut ks)
 			stuffit_des_crypt(mut verifyblock, ks, true)
 			if verifyblock[4 .. ] != archiveiv[4 .. ] {
-				println('${verifyblock} ${archiveiv}')
+				// println('${verifyblock} ${archiveiv}')
 				return none
 			}
 
@@ -413,12 +413,12 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 			//unsafe { vmemcpy(&fileiv,&entrykey[8:].addr[0], 8) }
 
 			stuffit_des_setkey(archivekey, mut ks)
-			stuffit_des_crypt(mut verifyblock, ks, false)
+			stuffit_des_crypt(mut filekey, ks, false)
 			for i := 0; i < 8; i++ {
 				filekey[i] ^= archiveiv[i]
 			}
-			stuffit_des_setkey(archivekey, mut &ks)
-			stuffit_des_crypt(mut filekey, ks, false)
+			stuffit_des_setkey(filekey, mut &ks)
+			stuffit_des_crypt(mut fileiv, ks, false)
 
 			mut key := filekey[ .. 8].clone()
 			key << fileiv[ .. 8]

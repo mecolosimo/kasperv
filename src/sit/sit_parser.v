@@ -8,7 +8,7 @@ import os
 import crc
 
 import bytes
-import rsrc
+//import rsrc
 import utils
 
 const stuffit_encrypted_flag = 0x80 	// password protected bit
@@ -21,7 +21,7 @@ const stuffit_numfile = 0x04 		// number of files and direcorties at root
 
 // Consts for stuffit header
 const sitfh_hdrcrc = 110 		// xadUINT16 crc of file header
-const sitfh_filedhrsize = 112
+const sitfh_filedhrsize = 112	// 0x70
 const sitfh_rsrcmethod = 0 		// SITFH_COMPRMETHOD, xadUINT8 rsrc fork compression method
 const sitfh_datamethod = 1 		// SITFH_COMPDMETHOD, xadUINT8 data fork compression method
 const sitfh_namelen = 2
@@ -69,8 +69,7 @@ pub mut:
 // The file we are going to aptempt to find password
 struct KasperFile {
 	file	&SitFile
-	rsrc	bool	@[xdoc: 'Are we using the rsrc fork']
-	comp 	[]u8	@[xdoc: 'Compressed data or rsrc fork']
+	comp 	[]u8	@[xdoc: 'Compressed data and rsrc fork']
 	h		f64		@[xdoc: 'Shannon entropy of either data or rsrc fork']
 }
 
@@ -100,10 +99,10 @@ fn check_sit(folders []&SitFolder) bool {
 		}
 		nfs := folder.files.len + folder.folders.len
 		if folder.numfiles != nfs {
-			println('\tExpecting ${folder.numfiles} found ${nfs} under ${folder.name}')
+			println('\tExpecting ${folder.numfiles} found ${nfs} files under ${folder.name}')
 			rst = false
 		} else {
-			println('\tFolder ${folder.name} looks fine. Excepting ${nfs}')
+			println('\tFolder ${folder.name} looks fine. Excepting ${nfs} files')
 		}
 	}
 	return rst
@@ -120,6 +119,9 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 			dump(des_handle)
 		}
 		if mut dh := des_handle {
+			println("Possible match: ${passwd}")
+			return true
+			/*
 			if dh.key.len == 16 {
 				// basically produceBlockAtOffset
 				if sit_r := config.sit {
@@ -128,33 +130,34 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 							if pf := kf.file.parent_folder {
 								println('Decrypting rsrc fork of ${kf.file.name}!')
 								mut block := []u8
-								// try to decrpt
-								start := u32(kf.file.start -16)	// back up to header for encryption
-								//start := u32(kf.file.start + kf.file.data_comp_length)
+								// try to get password
+								start := u32(kf.file.start - 16)	// include some of header for encryption
 								mut fh := os.open(config.sit_file) or { panic('${err}') }
 								defer {
 									fh.close()
 								}
-								inlength := kf.file.data_comp_length
-								//inlength := kf.file.rsrc_comp_length
+								inlength := kf.file.data_comp_length + kf.file.rsrc_comp_length
 								if inlength % 8 != 0 {
 									panic('Bad inlength: ${inlength}')
 								}
 								padding := kf.file.datapadding
 								outlength := inlength - padding
 								dh.init_with_handle(fh, start)
-								println('start: 0X${start:X}\t0X${start + kf.file.data_comp_length:X}\tOX${start + inlength + padding:X}')
-								for p := start; p < start + inlength; p += 8 {
+								println('start: 0X${start:X}\t0X${start + inlength:X}\t${outlength}\t${padding}')
+								println('dcl: ${kf.file.data_comp_length}\trcl: ${kf.file.rsrc_comp_length}')
+								println('dl: ${kf.file.datalength}\trl: ${kf.file.rsrclength}')
+								for p := start; p <= start + inlength; p += 8 {
 									if dh.produce_block_at_offset(p) == 8 {
 										block << dh.block
 									}
 								}
-								println('data len: ${block.len} ${block.bytestr()}')
+								println('block len ${block.len}')
+								println(block.bytestr())
+								println(block)
 								if block.len > 32 {
 									if (pf.datamethod & stuffit_method_mask) == 0 {
 										// try to see if valid
 										res := rsrc.new_resource_fork_from_buffer(block) or { 
-											println('${block}')
 											println(err)
 											return false
 										}
@@ -177,9 +180,10 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 						panic("Didn't find a file!")
 					}
 				}
-			}
+			} */
 		} else {
-			panic("Unable to make key!")
+			//panic("Unable to make key!")
+			return false
 		}
 	} else {
 		dump(config)
@@ -229,32 +233,17 @@ fn find_kasper_file(root &SitFolder, fh &os.File) ?&KasperFile {
 		}
 	}
 
-	// If any have a "good" rsrc fork
-	mut rsrc_files := file_queue.filter(fn (f &SitFile) bool {
-		return f.rsrclength > 32 // >LLLL16x
-	})
+	// If any have a "good" files
+	file_queue.sort(a.datalength < b.datalength)
 
-	if rsrc_files.len > 0 {
-		// Got something, find smallest
-		rsrc_files.sort(a.rsrclength > b.rsrclength)
-		data := fh.read_bytes_at(int(rsrc_files[0].rsrc_comp_length), u64(rsrc_files[0].start + sitfh_filedhrsize + rsrc_files[0].data_comp_length))
+	if file_queue.len > 0 {
+		data := fh.read_bytes_at(int(file_queue[0].data_comp_length + file_queue[0].rsrc_comp_length), u64(file_queue[0].start))
 		kasper_file = &KasperFile {
-			file: 	rsrc_files[0]
+			file: 	file_queue[0]
 			comp: 	data
-			rsrc: 	true
 			h: 		utils.shannon(data)
 		}
-	} else if file_queue.len > 0 {
-		// Get smallest datalength
-		file_queue.sort(a.datalength > b.datalength)
-		data := fh.read_bytes_at(int(rsrc_files[0].data_comp_length), u64(rsrc_files[0].start + sitfh_filedhrsize))
-		kasper_file = &KasperFile {
-			file: 	rsrc_files[0]
-			comp: 	data
-			rsrc: 	true
-			h: 		utils.shannon(data)
-		}
-	}
+	} 
 	return kasper_file
 }
 
@@ -381,7 +370,6 @@ pub fn parse(mut f os.File) !Sit {
 
 						parent_folder: current_folder
 					}
-					println(cf.files[cf.files.len -1])
 				} else {
 					panic('current_folder not set!')
 				}
@@ -429,6 +417,7 @@ pub fn parse(mut f os.File) !Sit {
 
 	// Quick checking of sit, we have something
 	mut kasper_file := ?&KasperFile(none)
+	/*
 	if folder := root {
 		if !check_sit([folder]) {
 			dump(root)
@@ -440,7 +429,7 @@ pub fn parse(mut f os.File) !Sit {
 		//println('kasper_file: ${kasper_file}') // causes seg fault!!
 	} else {
 		panic('Something gone wrong')
-	}	
+	}	*/
 
 	return Sit{
 		entrykey:  		entrykey
