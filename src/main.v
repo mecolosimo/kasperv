@@ -170,7 +170,7 @@ fn kasper(config Config) ! {
 		} else {
 			println("Not given MKey! Looking for it in a rsrc file.")
 			// see if .rcrs file exists
-			res := rsrc.new_resource_fork_from_file(sit_file_path) or { panic('No MKey found or given!') }
+			res := rsrc.new_resource_fork_from_file(sit_file_path) or { panic('No MKey found or given: ${err}') }
 			// Not none, see if MKey is there
 			if 'MKey' in res.tree { // bad does v support map interface?
 				mkey_rsrc := res.tree['MKey'].clone()

@@ -4,11 +4,11 @@
 // Derived from Unarchiver/XADMaster/XADStuffitParser.m
 module sit
 
-import os
 import crc
+import os
 
+// our stuff
 import bytes
-//import rsrc
 import utils
 
 const stuffit_encrypted_flag = 0x80 	// password protected bit
@@ -78,7 +78,6 @@ struct Sit {
 pub:
 	entrykey  ?[]u8
 	totalsize u32
-	kasper_file ?&KasperFile 	@[xdoc: 'File to try and decypt. Should be smallest or one with a rsrc fork.']
 pub mut:
 	files []&SitFile  			@[xdoc: 'Files']
 	root  ?&SitFolder 			@[xdoc: 'Root Folder']
@@ -112,77 +111,15 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 	s := config.sit or { dump(config); panic('No Sit!') }
 	if ek := s.entrykey {
 		mut des_handle := key_for_password_data(passwd, ek, config.mkey)
-		// debugging
 		if config.debug  {
 			println("")
 			dump(config)
 			dump(des_handle)
 		}
-		if mut dh := des_handle {
+		if des_handle != none {
 			println("Possible match: ${passwd}")
 			return true
-			/*
-			if dh.key.len == 16 {
-				// basically produceBlockAtOffset
-				if sit_r := config.sit {
-					if kf := sit_r.kasper_file {
-						if kf.rsrc {
-							if pf := kf.file.parent_folder {
-								println('Decrypting rsrc fork of ${kf.file.name}!')
-								mut block := []u8
-								// try to get password
-								start := u32(kf.file.start - 16)	// include some of header for encryption
-								mut fh := os.open(config.sit_file) or { panic('${err}') }
-								defer {
-									fh.close()
-								}
-								inlength := kf.file.data_comp_length + kf.file.rsrc_comp_length
-								if inlength % 8 != 0 {
-									panic('Bad inlength: ${inlength}')
-								}
-								padding := kf.file.datapadding
-								outlength := inlength - padding
-								dh.init_with_handle(fh, start)
-								println('start: 0X${start:X}\t0X${start + inlength:X}\t${outlength}\t${padding}')
-								println('dcl: ${kf.file.data_comp_length}\trcl: ${kf.file.rsrc_comp_length}')
-								println('dl: ${kf.file.datalength}\trl: ${kf.file.rsrclength}')
-								for p := start; p <= start + inlength; p += 8 {
-									if dh.produce_block_at_offset(p) == 8 {
-										block << dh.block
-									}
-								}
-								println('block len ${block.len}')
-								println(block.bytestr())
-								println(block)
-								if block.len > 32 {
-									if (pf.datamethod & stuffit_method_mask) == 0 {
-										// try to see if valid
-										res := rsrc.new_resource_fork_from_buffer(block) or { 
-											println(err)
-											return false
-										}
-										println('Possibly match ${passwd}\t${res}')
-									} else {
-										println('Unsupported compression method: ${name_of_compression_method(pf.datamethod & stuffit_method_mask)}')
-									}
-								} else {
-									println('res len: ${block.len}')
-									return false  // could check shannon H
-								}
-							} else {
-								panic('No parent_fold! Unknown compression method.')
-							}
-							
-						} else {
-							println('Not implement yet')
-						}
-					} else {
-						panic("Didn't find a file!")
-					}
-				}
-			} */
 		} else {
-			//panic("Unable to make key!")
 			return false
 		}
 	} else {
@@ -192,7 +129,7 @@ fn check_sit_password_internal(passwd string, config SitConfig) !bool {
 	return false
 }
 
-pub fn check_sit_password(config SitConfig) !bool	{
+pub fn check_sit_password(config SitConfig) !bool {
 	return replace_asterix(config, check_sit_password_internal)
 }
 
@@ -415,27 +352,10 @@ pub fn parse(mut f os.File) !Sit {
 		println('Encryted but did not set entrykey')
 	}
 
-	// Quick checking of sit, we have something
-	mut kasper_file := ?&KasperFile(none)
-	/*
-	if folder := root {
-		if !check_sit([folder]) {
-			dump(root)
-			panic('Bad SIT')
-		}
-		// Find smallest file or one that has a rsrc fork
-		println('Looking for good file to use.')
-		kasper_file = find_kasper_file(folder, &f)
-		//println('kasper_file: ${kasper_file}') // causes seg fault!!
-	} else {
-		panic('Something gone wrong')
-	}	*/
-
 	return Sit{
 		entrykey:  		entrykey
 		totalsize: 		totalsize
 		root:      		root
-		kasper_file:	kasper_file
 	}
 }
 

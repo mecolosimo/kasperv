@@ -16,7 +16,7 @@ type ResType = []u8 // bytes, a byte is a type in builtin/int.v
 // Really name and type are in Mac OS Roman, which is mostly ASCII (128 of which are identical to ASCII)
 pub struct Resource {
 pub:
-	type  ResType @[required; xdoc: 'FourCC of the resource type.']
+	type  ResType @[required; xdoc: 'Entry Id (FourCCs) of the resource type.']
 	num   i32     @[required; xdoc: 'ID of this resource. Should be unique within the resource type.']
 	data  []u8    @[xdoc: 'Raw data of the resource.']
 	name  []u8    @[xdoc: 'Raw resource name. Typically encoded as MacRoman.']
@@ -110,9 +110,7 @@ pub fn new_resource_fork_from_buffer(buf []u8) !Resource_Fork {
 			if convert_mac_roman_to_utf8(res_type) in tree {
 				return error('${convert_mac_roman_to_utf8(res_type)} already processed!')
 			}
-			//tree[convert_mac_roman_to_utf8(res_type)] = ResType{}
 
-			//f.seek(i64(reslist_offset), .start) or { panic('${err}')
 			for j in 0 .. res_count {
 				res_id := bytes.int_16_be(u_map_bytes, reslist_offset)
 				res_name_offset := bytes.uint_16_be(u_map_bytes, reslist_offset + 2)
@@ -177,12 +175,20 @@ pub fn new_resource_fork_from_buffer(buf []u8) !Resource_Fork {
 
 pub fn new_resource_fork_from_file(path string) !Resource_Fork {
 	p := path.trim_space()
-	if os.exists(p) {
+	bn := os.base(p)  	// base (name) If the path is empty, base returns ".", similar to file_name
+	f := os.file_name(p)
+	d := os.dir(p)		// Directory
+	// TODO: Implement Apple Single/Double name conversion
+	if os.exists( os.join_path(d, "._" + f ) ) {
+		// Get data				
+		mut buf := os.read_bytes( os.join_path(d, "._" + f ) ) or { panic('${err}') }
+
+		return apple_single_double(buf)
+	} else if os.exists(p) {
 		// v's string and file utiles needs work IMHO
 		// SheepSaver seems to saves the resource fork under .rsrc There are also turds under .finf
 		dirs := os.dir(p)
 		if dirs.len > 0 {
-			bn := os.base(p)  // If the path is empty, base returns "."
 			r_p := os.join_path(dirs, ".rsrc", bn)
 
 			// see if rsrc fork exists

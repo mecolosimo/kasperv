@@ -44,7 +44,7 @@ pub fn new_config(sit_file string, archive_hash []u8, wildcard bool, debug bool,
 			panic("Missing Sit config!")
 		}
 	} else {
-		if s := sit {
+		if sit != none {
 			panic("Missing mkey but have Sit!")
 		}
 	}
