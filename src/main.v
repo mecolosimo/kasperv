@@ -202,8 +202,6 @@ fn kasper(config Config) ! {
 				config.sit, []u8{}, config.wildcard, 
 				config.debug, config.passwd, 
 				mk, sit_r), mut pb)
-
-println("value: ${pb.progessbar_value()}\tmax: ${pb.progessbar_max()}\tdiff: ${pb.progessbar_value() - pb.progessbar_max()} ")
 				
 		} else {
 			panic('encpyted but NO MKey found!')
