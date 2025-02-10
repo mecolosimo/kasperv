@@ -9,6 +9,8 @@ import io
 import os
 import time
 
+import progressbar
+
 import sit
 import sit.rsrc
 
@@ -34,7 +36,7 @@ pub struct Config {
 }
 
 // run kasper on sit5 archive
-fn kaspser_five(config Config, mut f os.File) ! {
+fn kaspser_five(config Config, mut f os.File, mut pb progressbar.Progessbar) ! {
 	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
 	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
@@ -79,7 +81,13 @@ fn kaspser_five(config Config, mut f os.File) ! {
 		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard,
 										config.debug, config.passwd, none, none)
 
-		sit.check_sit5_password(kasper_config) or { panic('${err}')}
+		m := sit.check_sit5_password(kasper_config, mut pb)
+
+		pb.progressbar_finish()
+
+		if m.len > 0 {
+			println("Found ${m.len} matches")
+		}
 	}
 
 	// check if password and file given is main
@@ -108,19 +116,16 @@ fn kaspser_five(config Config, mut f os.File) ! {
 				println('Checking: ${password}')
 			}
 
-			// new_config: really not need
 			kasper_file_config := sit.new_config(config.sit, archive_hash, config.wildcard,
 												 config.debug, config.passwd.trim_space(),
 												 none, none)
 
-			sit.check_sit5_password(kasper_file_config) or { panic('${err}')}
+			m := sit.check_sit5_password(kasper_file_config, mut pb) 
 
-			// Simple old school way of showing progress
-			if cnt % 1000 == 0 {
-				print("Checked ${cnt} passwords in ${sw.elapsed()}\r")
+			if m.len > 0 {
+				println("Found ${m.len} matches")
+				println("${m}")
 			}
-
-			cnt += 1
 		}
 
 		sw.stop()
@@ -188,15 +193,29 @@ fn kasper(config Config) ! {
 		
 		} 
 		if mk := mkey {
+			mut pb := progressbar.progressbar_new("Kasper", 10) or { panic('Something went wrong with progressbar_new')}
+			defer {
+				pb.progressbar_finish()
+			}
+			
 			sit.check_sit_password(sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
 				config.debug, config.passwd, 
-				mk, sit_r))!
+				mk, sit_r), mut pb)
+
+println("value: ${pb.progessbar_value()}\tmax: ${pb.progessbar_max()}\tdiff: ${pb.progessbar_value() - pb.progessbar_max()} ")
+				
 		} else {
 			panic('encpyted but NO MKey found!')
 		}
 	} else if sit.is_sit5(f) {
-		kaspser_five(config, mut f)!
+		mut pb := progressbar.progressbar_new("Kasper", 10) or { panic('Something went wrong with progressbar_new')}
+		defer {
+			pb.progressbar_finish()
+		}
+		
+		kaspser_five(config, mut f, mut pb)!
+
 	} else if sit.is_sit_zip(f) {
 		panic("Don't support zip sit archives!")
 	}
