@@ -20,7 +20,8 @@ v .
 Running on all ASCII four letter passords ending with```oly```:
 
 ```bash
- ./kasperv -p*oly -sexample/holy.sit -w
+./kasperv -p*oly -sexamples/holy.sit -w
+./kasperv -p*oly -sexamples/holy_dlx3.0.7.sit -w
  ```
 
 Using a word list
