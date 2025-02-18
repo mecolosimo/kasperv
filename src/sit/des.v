@@ -399,7 +399,7 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 				verifyblock[i] = archiveiv[i]  // only the first 4 will match
 			}
 			
-			stuffit_des_setkey(archivekey, mut ks)
+			stuffit_des_setkey(archivekey, mut &ks)
 			stuffit_des_crypt(mut verifyblock, ks, true)
 			if verifyblock[4 .. ] != archiveiv[4 .. ] {
 				// println('${verifyblock} ${archiveiv}')
@@ -412,7 +412,7 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 			//unsafe { vmemcpy(&filekey.addr[0], &entrykey.addr[0], 8) }
 			//unsafe { vmemcpy(&fileiv,&entrykey[8:].addr[0], 8) }
 
-			stuffit_des_setkey(archivekey, mut ks)
+			stuffit_des_setkey(archivekey, mut &ks)
 			stuffit_des_crypt(mut filekey, ks, false)
 			for i := 0; i < 8; i++ {
 				filekey[i] ^= archiveiv[i]

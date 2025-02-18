@@ -38,6 +38,6 @@ fn check_sit5_password_internal(passwd string, config SitConfig) string {
 	return ""
 }
 
-pub fn check_sit5_password(config SitConfig, mut pb progressbar.Progessbar) []string {
+pub fn check_sit5_password(config SitConfig, mut pb &progressbar.Progessbar) []string {
 	return replace_asterix(config, mut pb, check_sit5_password_internal)
 }

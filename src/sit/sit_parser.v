@@ -127,7 +127,7 @@ fn check_sit_password_internal(passwd string, config SitConfig) string {
 }
 
 pub fn check_sit_password(config SitConfig, mut pb &progressbar.Progessbar) []string {
-	return replace_asterix(config, mut pb, check_sit_password_internal)
+	return replace_asterix(config, mut &pb, check_sit_password_internal)
 }
 
 fn find_kasper_file(root &SitFolder, fh &os.File) ?&KasperFile {
