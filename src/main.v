@@ -36,7 +36,12 @@ pub struct Config {
 }
 
 // run kasper on sit5 archive
-fn kaspser_five(config Config, mut f os.File, mut pb progressbar.Progessbar) ! {
+fn kaspser_five(config Config, mut f os.File) ! {
+	mut pb := progressbar.progressbar_new("SIT5", 10) 
+	defer {
+		pb.progressbar_finish()
+	}
+
 	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
 	f.seek(i64(sizeof(u8))*82, .start) or { panic('${err}') } // skip to version, 0x52
@@ -81,7 +86,7 @@ fn kaspser_five(config Config, mut f os.File, mut pb progressbar.Progessbar) ! {
 		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard,
 										config.debug, config.passwd, none, none)
 
-		m := sit.check_sit5_password(kasper_config, mut pb)
+		m := sit.check_sit5_password(kasper_config, mut &pb)
 
 		pb.progressbar_finish()
 
@@ -120,7 +125,7 @@ fn kaspser_five(config Config, mut f os.File, mut pb progressbar.Progessbar) ! {
 												 config.debug, config.passwd.trim_space(),
 												 none, none)
 
-			m := sit.check_sit5_password(kasper_file_config, mut pb) 
+			m := sit.check_sit5_password(kasper_file_config, mut &pb) 
 
 			if m.len > 0 {
 				println("Found ${m.len} matches")
@@ -193,7 +198,7 @@ fn kasper(config Config) ! {
 		
 		} 
 		if mk := mkey {
-			mut pb := progressbar.progressbar_new("Kasper", 10) or { panic('Something went wrong with progressbar_new')}
+			mut pb := progressbar.progressbar_new("SIT", 10)
 			defer {
 				pb.progressbar_finish()
 			}
@@ -201,18 +206,14 @@ fn kasper(config Config) ! {
 			sit.check_sit_password(sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
 				config.debug, config.passwd, 
-				mk, sit_r), mut pb)
+				mk, sit_r), mut &pb)
 				
 		} else {
 			panic('encpyted but NO MKey found!')
 		}
 	} else if sit.is_sit5(f) {
-		mut pb := progressbar.progressbar_new("Kasper", 10) or { panic('Something went wrong with progressbar_new')}
-		defer {
-			pb.progressbar_finish()
-		}
 		
-		kaspser_five(config, mut f, mut pb)!
+		kaspser_five(config, mut f)!
 
 	} else if sit.is_sit_zip(f) {
 		panic("Don't support zip sit archives!")
