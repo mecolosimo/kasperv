@@ -366,10 +366,7 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 
 			// Is ther a better way?
 			mut passblock := [u8(0),0,0,0,0,0,0,0]
-			mut length := password.len
-			if password.len > 8 {
-				length = 8
-			}
+			mut length := if password.len > 8 { 8 } else { password.len }
 			for i in 0 .. length {
 				passblock[i] = password[i]
 			}

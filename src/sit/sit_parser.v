@@ -121,7 +121,6 @@ fn check_sit_password_internal(passwd string, config SitConfig) string {
 		}
 		
 	} else {
-		dump(config)
 		panic('Need entrykey!')
 	}
 }

@@ -171,7 +171,7 @@ fn kasper(config Config) ! {
 	if sit.is_sit(f) {
 		println("SIT!")
 		sit_r := sit.parse(mut f) or { panic("Couldn't parse SIT!") }
-		println("entrykey: ${sit_r.entrykey}")
+		//println("entrykey: ${sit_r.entrykey}")
 		mut mkey := ?[]u8(none)
 		if mk := config.mkey {
 			if mk.len % 2 == 0 {
@@ -185,18 +185,25 @@ fn kasper(config Config) ! {
 			if 'MKey' in res.tree { // bad does v support map interface?
 				mkey_rsrc := res.tree['MKey'].clone()
 				if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
-					//println('Found ${mkey_rsrc[0]} ${mkey_rsrc[0].data}!')
-					println("\tFound MKey in rsrc fork")
+					println("\tFound MKey in a resource (rsrc) fork.")
 					mkey = mkey_rsrc[0].data.clone()
 				} else {
 					dump(mkey_rsrc)
-					panic('Found rsrc but not MKey resource!')
+					panic('Found a resource fork (rsrc) but not MKey a the fork!')
 				}
 			} else {
 				panic('No MKey in rsrc fork!')
 			}
 		
 		} 
+
+
+		mut check_passwd := config.passwd
+		if config.passwd.len > 8 {
+			check_passwd = config.passwd[0 .. 8]
+			println("\tpasswd too long using: ${check_passwd}")
+		} 
+
 		if mk := mkey {
 			mut pb := progressbar.progressbar_new("SIT", 10)
 			defer {
@@ -205,7 +212,7 @@ fn kasper(config Config) ! {
 			
 			sit.check_sit_password(sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
-				config.debug, config.passwd, 
+				config.debug, check_passwd, 
 				mk, sit_r), mut &pb)
 				
 		} else {
