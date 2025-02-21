@@ -23,13 +23,14 @@ const sit5_archiveflags_crypted = 0x80
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
-@[version: '0.0.2']
+@[version: '0.0.6']
 @[name: 'kasper']
 pub struct Config {
 	passwd			string 	@[short: p; xdoc: 'The password to try']
 	file			string 	@[short: f; xdoc: 'A password file with a password per line']
 	sit				string 	@[short: s; xdoc: 'The password protected SIT archive']
 	wildcard 		bool 	@[short: w; xdoc: 'Expand astericks in passwd']
+	num_threads		u8 = 1	@[short: n; xdoc: 'Number of threads to use']
 	mkey 			?string @[short: m; xdoc: 'MKey found in rsrc fork, will try to parse it out if not given.']
 	help 			bool 	@[short: h; xdoc: 'Help']
 	debug			bool 	@[short: d; xdoc: 'Debug']
@@ -84,7 +85,8 @@ fn kaspser_five(config Config, mut f os.File) ! {
 		println('Checking ${config.passwd}')
 
 		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard,
-										config.debug, config.passwd, none, none)
+										config.debug, config.num_threads,
+										config.passwd, none, none)
 
 		m := sit.check_sit5_password(kasper_config, mut &pb)
 
@@ -122,7 +124,8 @@ fn kaspser_five(config Config, mut f os.File) ! {
 			}
 
 			kasper_file_config := sit.new_config(config.sit, archive_hash, config.wildcard,
-												 config.debug, config.passwd.trim_space(),
+												 config.debug, config.num_threads,
+												 config.passwd.trim_space(),
 												 none, none)
 
 			m := sit.check_sit5_password(kasper_file_config, mut &pb) 
@@ -205,16 +208,37 @@ fn kasper(config Config) ! {
 		} 
 
 		if mk := mkey {
-			mut pb := progressbar.progressbar_new("SIT", 10)
+
+			pb_cnt := 1
+			if config.passwd.contains('*') && config.wildcard {
+				// how many? and update progress bar
+				pb_cnt = sit.calc_samples(config.passwd.count('*'))
+			}
+			mut pb := progressbar.progressbar_new("SIT", u64(pb_cnt))
 			defer {
 				pb.progressbar_finish()
 			}
 			
-			sit.check_sit_password(sit.new_config(
+			// start processing threads
+			sit_config := sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
-				config.debug, check_passwd, 
-				mk, sit_r), mut &pb)
-				
+				config.debug, config.num_threads, check_passwd,
+				mk, sit_r)
+			query_ch := chan string{cap: 95}
+			result_ch := chan string{cap: 95}
+			for _ in 0 .. config.num_threads {
+				go producer(query_ch, result_ch, sit_config, mut &pb, sit.check_sit_password)
+			}
+
+			// starting consumer
+			mut passwd_matches := []string{}
+			con := go consumer(result_ch, mut passwd_matches)
+
+			// start filling the queue, don't expect many (if any) results
+			replace_asterix(config, query_ch)
+
+			con.wait()	
+
 		} else {
 			panic('encpyted but NO MKey found!')
 		}

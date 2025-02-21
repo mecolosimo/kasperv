@@ -5,21 +5,27 @@ pub:
 	sit_file		string
 	archive_hash	[]u8
 	wildcard 		bool
+	num_threads		u8
 	debug			bool
 	mkey			?[]u8
 	sit				?Sit
+
+	passwd			string	@[xdoc: 'The original password']
+
 pub mut:
-	passwd			string
+	search			string	@[xdoc: 'The search password']
 }
 
 // Make a new SitConfig
-pub fn new_config(sit_file string, archive_hash []u8, wildcard bool, debug bool,
+pub fn new_config(sit_file string, archive_hash []u8,
+				  wildcard bool, debug bool, num_threads u8,
 				  passwd string, mkey ?[]u8, sit ?Sit) SitConfig {
 	mut config := SitConfig{
 			sit_file:		sit_file
 			passwd:			passwd
 			archive_hash: 	archive_hash
 			wildcard: 		wildcard
+			num_threads: 	num_threads
 			debug:			debug
 		}
 	if mk := mkey {
