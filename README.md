@@ -24,8 +24,8 @@ Running on all ASCII four letter passords ending with```oly```:
 ./kasperv -p*oly -sexamples/holy_dlx3.0.7.sit -w
  ```
 
-Using a word list
+Using a word list with 2 threads
 
 ```bash
-./kasperv -fexamples/wordlist.txt  -sexamples/holy.sit
+./kasperv -fexamples/wordlist.txt  -sexamples/holy.sit -n 2
 ```

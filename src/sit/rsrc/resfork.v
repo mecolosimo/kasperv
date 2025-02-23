@@ -97,7 +97,7 @@ pub fn new_resource_fork_from_buffer(buf []u8) !Resource_Fork {
 		mut tree := map[string]map[u32]Resource{}
 		mut offset_map := 30
 		mut offset_data := 0
-		for i in 0 .. num_types {
+		for _ in 0 .. num_types {
 			// u_map.unpack(">4sHH")
 			res_type := u_map_bytes[offset_map .. offset_map + 4]
 			offset_map += 4

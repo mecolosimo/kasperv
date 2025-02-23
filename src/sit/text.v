@@ -7,7 +7,7 @@ pub fn calc_samples(n int) u64 {
 	// There must been an easier way
 	mut sum := u64(0)
 	if n == 1 {
-		return 95
+		return 94
 	} else if n < 1 {
 		return 1
 	} else {
@@ -40,12 +40,11 @@ fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int
 
 		}
 	} else {
-		in_ch <- password
+		in_ch <- passwd
 	}
-
 }
 
-fn replace_asterix(config SitConfig, in_ch chan string) {
+pub fn replace_asterix(config SitConfig, in_ch chan string) {
 
 	if config.passwd.contains('*') && config.wildcard {
 		next_index := config.passwd.index_after('*', 0)
@@ -63,7 +62,7 @@ fn replace_asterix(config SitConfig, in_ch chan string) {
 					println("\tnew_character: ${byte_c}\tnew_passwd: ${new_passwd}\toriginal password: ${config.passwd}")
 				}
 				
-				 replace_asterix_at(config, new_passwd, next_index + 1, 1, in_ch)
+				replace_asterix_at(config, new_passwd, next_index + 1, 1, in_ch)
 			}
 		}
 	} else {
