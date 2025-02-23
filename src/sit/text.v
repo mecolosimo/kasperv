@@ -3,13 +3,11 @@
 // that can be found in the LICENSE file.
 module sit
 
-import progressbar
-
-fn calc_samples(n int) u64 {
+pub fn calc_samples(n int) u64 {
 	// There must been an easier way
 	mut sum := u64(0)
 	if n == 1 {
-		return 95
+		return 94
 	} else if n < 1 {
 		return 1
 	} else {
@@ -20,9 +18,9 @@ fn calc_samples(n int) u64 {
 	}
 }
 
-fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int, mut pb &progressbar.Progessbar, search fn (string, SitConfig) string) []string {
+fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int,  
+					  in_ch chan string) {
 	next_index := passwd.index_after('*', from_index)
-	mut m := []string{}
 
 	if next_index > -1 && next_index < passwd.len {
 		if config.debug {
@@ -38,31 +36,17 @@ fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int
 				println("\t\tnew_passwd: ${new_passwd}\told_passwd: ${passwd}")
 			}
 
-			passwd_match := replace_asterix_at(config, new_passwd, next_index + 1, depth+1, mut pb, search)
+			replace_asterix_at(config, new_passwd, next_index + 1, depth+1, in_ch)
 
-			if passwd_match.len > 0{
-				m << passwd_match
-			}
 		}
 	} else {
-		passwd_match := search(passwd, config)
-		if passwd_match.len > 0{
-			m << passwd_match
-		}
-		pb.progressbar_inc()
+		in_ch <- passwd
 	}
-	return m
 }
 
-fn replace_asterix(config SitConfig, mut pb &progressbar.Progessbar, search fn (string, SitConfig) string) []string	{
-	mut m := []string{}
+pub fn replace_asterix(config SitConfig, in_ch chan string) {
 
 	if config.passwd.contains('*') && config.wildcard {
-		// how many? and update progress bar
-		cnt := calc_samples(config.passwd.count('*'))
-		if cnt > pb.progessbar_max() { 
-			pb.progessbar_update_max(u64(cnt))
-		}
 		next_index := config.passwd.index_after('*', 0)
 		if next_index > -1 && next_index < config.passwd.len {
 			if config.debug {
@@ -78,21 +62,10 @@ fn replace_asterix(config SitConfig, mut pb &progressbar.Progessbar, search fn (
 					println("\tnew_character: ${byte_c}\tnew_passwd: ${new_passwd}\toriginal password: ${config.passwd}")
 				}
 				
-				passwd_match := replace_asterix_at(config, new_passwd, next_index + 1, 1, mut pb, search)
-
-				if passwd_match.len > 0 {
-					m << passwd_match
-				}
+				replace_asterix_at(config, new_passwd, next_index + 1, 1, in_ch)
 			}
 		}
 	} else {
-
-		passwd_match :=search(config.passwd, config)
-
-		if passwd_match.len > 0 {
-			m << passwd_match
-		}
-		pb.progressbar_inc()
+		in_ch <- config.passwd
 	}
-	return m
 }

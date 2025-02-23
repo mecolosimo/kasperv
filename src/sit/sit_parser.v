@@ -7,9 +7,6 @@ module sit
 import crc
 import os
 
-// our stuff
-import progressbar
-
 import bytes
 import utils
 
@@ -109,7 +106,7 @@ fn check_sit(folders []&SitFolder) bool {
 	return rst
 }
 
-fn check_sit_password_internal(passwd string, config SitConfig) string {
+pub fn check_sit_password(passwd string, config SitConfig) string {
 	s := config.sit or { dump(config); panic('No Sit!') }
 	if ek := s.entrykey {
 		mut des_handle := key_for_password_data(passwd, ek, config.mkey)
@@ -123,10 +120,6 @@ fn check_sit_password_internal(passwd string, config SitConfig) string {
 	} else {
 		panic('Need entrykey!')
 	}
-}
-
-pub fn check_sit_password(config SitConfig, mut pb &progressbar.Progessbar) []string {
-	return replace_asterix(config, mut &pb, check_sit_password_internal)
 }
 
 fn find_kasper_file(root &SitFolder, fh &os.File) ?&KasperFile {

@@ -23,13 +23,14 @@ const sit5_archiveflags_crypted = 0x80
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
-@[version: '0.0.2']
+@[version: '0.0.6']
 @[name: 'kasper']
 pub struct Config {
 	passwd			string 	@[short: p; xdoc: 'The password to try']
 	file			string 	@[short: f; xdoc: 'A password file with a password per line']
 	sit				string 	@[short: s; xdoc: 'The password protected SIT archive']
 	wildcard 		bool 	@[short: w; xdoc: 'Expand astericks in passwd']
+	num_threads		u8 = 1	@[short: n; xdoc: 'Number of threads to use']
 	mkey 			?string @[short: m; xdoc: 'MKey found in rsrc fork, will try to parse it out if not given.']
 	help 			bool 	@[short: h; xdoc: 'Help']
 	debug			bool 	@[short: d; xdoc: 'Debug']
@@ -37,10 +38,15 @@ pub struct Config {
 
 // run kasper on sit5 archive
 fn kaspser_five(config Config, mut f os.File) ! {
-	mut pb := progressbar.progressbar_new("SIT5", 10) 
-	defer {
-		pb.progressbar_finish()
+
+	mut pb_cnt := u64(1)
+	if config.passwd.contains('*') && config.wildcard {
+		// how many? and update progress bar
+		println("Calculating number of guesses. Please wait...")
+		pb_cnt = sit.calc_samples(config.passwd.count('*'))
+		println("\tCalculated ${pb_cnt} guesses.")	
 	}
+	mut pb := progressbar.progressbar_new("SIT5", pb_cnt ) 
 
 	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
@@ -83,16 +89,25 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	if config.passwd.len > 0 {
 		println('Checking ${config.passwd}')
 
-		kasper_config := sit.new_config(config.sit, archive_hash, config.wildcard,
-										config.debug, config.passwd, none, none)
+		sit_config := sit.new_config(config.sit, archive_hash, config.wildcard,
+										config.debug, config.num_threads,
+										config.passwd, none, none)
 
-		m := sit.check_sit5_password(kasper_config, mut &pb)
-
-		pb.progressbar_finish()
-
-		if m.len > 0 {
-			println("Found ${m.len} matches")
+		// start processing threads
+		query_ch := chan string{cap: 95}
+		result_ch := chan string{cap: 95}
+		for _ in 0 .. config.num_threads {
+			go producer(query_ch, result_ch, sit_config, mut pb, sit.check_sit5_password)
 		}
+
+		// starting consumer
+		con := go consumer(result_ch, mut pb, pb.progessbar_max())
+
+		// start filling the queue, don't expect many (if any) results
+		sit.replace_asterix(sit_config, query_ch)
+
+		con.wait()	
+
 	}
 
 	// check if password and file given is main
@@ -121,16 +136,25 @@ fn kaspser_five(config Config, mut f os.File) ! {
 				println('Checking: ${password}')
 			}
 
-			kasper_file_config := sit.new_config(config.sit, archive_hash, config.wildcard,
-												 config.debug, config.passwd.trim_space(),
+			sit_config := sit.new_config(config.sit, archive_hash, config.wildcard,
+												 config.debug, config.num_threads,
+												 config.passwd.trim_space(),
 												 none, none)
 
-			m := sit.check_sit5_password(kasper_file_config, mut &pb) 
-
-			if m.len > 0 {
-				println("Found ${m.len} matches")
-				println("${m}")
+			// start processing threads
+			query_ch := chan string{cap: 95}
+			result_ch := chan string{cap: 95}
+			for _ in 0 .. config.num_threads {
+				go producer(query_ch, result_ch, sit_config, mut pb, sit.check_sit5_password)
 			}
+
+			// starting consumer
+			con := go consumer(result_ch, mut pb, pb.progessbar_max())
+
+			// start filling the queue, don't expect many (if any) results
+			sit.replace_asterix(sit_config, query_ch)
+
+			con.wait()	
 		}
 
 		sw.stop()
@@ -169,9 +193,8 @@ fn kasper(config Config) ! {
 	}
 
 	if sit.is_sit(f) {
-		println("SIT!")
 		sit_r := sit.parse(mut f) or { panic("Couldn't parse SIT!") }
-		//println("entrykey: ${sit_r.entrykey}")
+		println("SIT!")
 		mut mkey := ?[]u8(none)
 		if mk := config.mkey {
 			if mk.len % 2 == 0 {
@@ -205,21 +228,41 @@ fn kasper(config Config) ! {
 		} 
 
 		if mk := mkey {
-			mut pb := progressbar.progressbar_new("SIT", 10)
-			defer {
-				pb.progressbar_finish()
+
+			mut pb_cnt := u64(1)
+			if config.passwd.contains('*') && config.wildcard {
+				// how many? and update progress bar
+				println("Calculating number of guesses. Please wait...")
+				pb_cnt = sit.calc_samples(config.passwd.count('*'))
+				println("\tCalculated ${pb_cnt} guesses.")
 			}
+			mut pb := progressbar.progressbar_new("SIT", pb_cnt)
 			
-			sit.check_sit_password(sit.new_config(
+			sit_config := sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
-				config.debug, check_passwd, 
-				mk, sit_r), mut &pb)
-				
+				config.debug, config.num_threads, check_passwd,
+				mk, sit_r)
+
+			// start processing threads
+			query_ch := chan string{cap: 95}
+			result_ch := chan string{cap: 95}
+			for _ in 0 .. config.num_threads {
+				go producer(query_ch, result_ch, sit_config, mut pb, sit.check_sit_password)
+			}
+
+			// starting consumer
+			con := go consumer(result_ch, mut pb, pb.progessbar_max())
+
+			// start filling the queue, don't expect many (if any) results
+			sit.replace_asterix(sit_config, query_ch)
+
+			con.wait()	
+
 		} else {
 			panic('encpyted but NO MKey found!')
 		}
 	} else if sit.is_sit5(f) {
-		
+
 		kaspser_five(config, mut f)!
 
 	} else if sit.is_sit_zip(f) {

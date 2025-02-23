@@ -3,8 +3,6 @@
 // that can be found in the LICENSE file.
 module sit
 
-import progressbar
-
 import crypto.md5
 import encoding.hex
 
@@ -18,7 +16,7 @@ fn stuffit_md5(data []u8) ![]u8 {
 	return stuffit[..sit5_key_length]
 }
 
-fn check_sit5_password_internal(passwd string, config SitConfig) string {
+fn check_sit5_password(passwd string, config SitConfig) string {
 	mut archive_key := stuffit_md5(passwd.bytes()) or { panic('${err}') }
 	mut hash := stuffit_md5(archive_key) or { panic('${err}')}
 
@@ -38,6 +36,6 @@ fn check_sit5_password_internal(passwd string, config SitConfig) string {
 	return ""
 }
 
-pub fn check_sit5_password(config SitConfig, mut pb &progressbar.Progessbar) []string {
-	return replace_asterix(config, mut pb, check_sit5_password_internal)
-}
+//pub fn check_sit5_password(config SitConfig, mut pb &progressbar.Progessbar) []string {
+//	return replace_asterix(config, mut pb, check_sit5_password_internal)
+//}
