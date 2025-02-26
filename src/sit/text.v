@@ -4,17 +4,10 @@
 module sit
 
 pub fn calc_samples(n int) u64 {
-	// There must been an easier way
-	mut sum := u64(0)
 	if n == 1 {
-		return 94
-	} else if n < 1 {
-		return 1
+		return 95
 	} else {
-		for i := 0; i < 95; i++ {
-			sum += calc_samples( n - 1 )
-		}
-		return sum
+		return calc_samples( n - 1 ) * 95
 	}
 }
 
@@ -26,7 +19,7 @@ fn replace_asterix_at(config SitConfig, passwd string, from_index int, depth int
 		if config.debug {
 				println('\tfound ${passwd[next_index]} at: ${next_index}\tfrom_index: ${from_index}\tdepth: ${depth}\tpasswd len: ${passwd.len}\tpaswd: ${passwd}')
 		}
-		for p in 32 .. 127 { // space to ~
+		for p in 32 .. 127 { 			// space to ~
 			byte_c := u8(p)
 			mut n := passwd.bytes() 	// []u8, strings are not mutable
 			n[next_index] = byte_c
@@ -53,11 +46,11 @@ pub fn replace_asterix(config SitConfig, in_ch chan string) {
 				println('replace_asterix: found * at: ${next_index}\tdepth: 0\tpasswd len: ${config.passwd.len}\tpasswd: ${config.passwd}')
 			}
 
-			for p in 32 .. 127 { // space to ~
+			for p in 32 .. 127 {				// space to ~
 				byte_c := u8(p)
-				mut n := config.passwd.bytes() // []u8, strings are not mutable
+				mut n := config.passwd.bytes() 	// []u8, strings are not mutable
 				n[next_index] = byte_c
-				new_passwd := n.bytestr() // back to string
+				new_passwd := n.bytestr() 		// back to string
 				if config.debug {
 					println("\tnew_character: ${byte_c}\tnew_passwd: ${new_passwd}\toriginal password: ${config.passwd}")
 				}

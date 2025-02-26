@@ -12,13 +12,15 @@ fn producer(in_ch chan string, out_ch chan string,
 			mut pb &progressbar.Progessbar,
 			search fn (string, sit.SitConfig) string) {
 	for {
-		q := <- in_ch or { break }	// hopefully blocks or is closed	
+		q := <- in_ch or { break }	// hopefully blocks or is closed
+		if q == "" {
+			out_ch <- ""
+			return
+		}
 		passwd_match := search(q, config)
 		pb.progressbar_inc()
 		if passwd_match.len > 0 {
 			out_ch <- passwd_match	// might block
-		} else {
-			out_ch <- ""
 		}
 	}
 }
@@ -28,7 +30,7 @@ fn consumer(in_ch chan string, mut pb &progressbar.Progessbar, num_threads u64) 
 	mut done := 0
 	for {
 		passwd_match := <- in_ch or { break }
-		if passwd_match == "" {
+		if passwd_match == "" {		
 			done += 1
 		} else {
 			passwd_matches << passwd_match
@@ -37,7 +39,7 @@ fn consumer(in_ch chan string, mut pb &progressbar.Progessbar, num_threads u64) 
 		if done >= num_threads {
 			pb.progressbar_finish()
 			if passwd_matches.len > 0 {
-				println("Matched:")
+				println("Matched ${passwd_matches.len}:")
 				for p in passwd_matches {
 					println("\t${p}")
 				}

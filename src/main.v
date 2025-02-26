@@ -23,7 +23,7 @@ const sit5_archiveflags_crypted = 0x80
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
-@[version: '0.0.6']
+@[version: '0.0.7']
 @[name: 'kasper']
 pub struct Config {
 	passwd			string 	@[short: p; xdoc: 'The password to try']
@@ -42,11 +42,10 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	mut pb_cnt := u64(1)
 	if config.passwd.contains('*') && config.wildcard {
 		// how many? and update progress bar
-		println("Calculating number of guesses. Please wait...")
 		pb_cnt = sit.calc_samples(config.passwd.count('*'))
-		println("\tCalculated ${pb_cnt} guesses.")	
+		println("Calculating ${pb_cnt} guesses...")	
 	}
-	mut pb := progressbar.progressbar_new("SIT5", pb_cnt ) 
+	mut pb := progressbar.progressbar_new("SIT5", pb_cnt) 
 
 	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
@@ -89,6 +88,9 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	if config.passwd.len > 0 {
 		println('Checking ${config.passwd}')
 
+		mut sw := time.new_stopwatch()
+		sw.start()
+
 		sit_config := sit.new_config(config.sit, archive_hash, config.wildcard,
 										config.debug, config.num_threads,
 										config.passwd, none, none)
@@ -106,8 +108,16 @@ fn kaspser_five(config Config, mut f os.File) ! {
 		// start filling the queue, don't expect many (if any) results
 		sit.replace_asterix(sit_config, query_ch)
 
+		// Send done to exit
+		for _ in 0 .. config.num_threads {
+			query_ch <- ""
+		}
+
 		con.wait()	
 
+		sw.stop()
+
+		println("Checked ${pb_cnt} total passwords in ${sw.elapsed()}")
 	}
 
 	// check if password and file given is main
@@ -126,7 +136,6 @@ fn kaspser_five(config Config, mut f os.File) ! {
 		}
 
 		mut reader := io.new_buffered_reader(reader: password_file) // not string_builder!
-		mut cnt := 0
 		mut sw := time.new_stopwatch()
 		sw.start()
 		for {
@@ -149,16 +158,22 @@ fn kaspser_five(config Config, mut f os.File) ! {
 			}
 
 			// starting consumer
-			con := go consumer(result_ch, mut pb, pb.progessbar_max())
+			con := go consumer(result_ch, mut pb, config.num_threads)
 
 			// start filling the queue, don't expect many (if any) results
 			sit.replace_asterix(sit_config, query_ch)
 
-			con.wait()	
+			// Send done to exit
+			for _ in 0 .. config.num_threads {
+				query_ch <- ""
+			}
+
+			con.wait()
 		}
 
 		sw.stop()
-		println("Checked ${cnt} total passwords in ${sw.elapsed()}")
+
+		println("Checked ${pb.progessbar_max()} total passwords in ${sw.elapsed()}")
 	}
 }
 
@@ -194,21 +209,20 @@ fn kasper(config Config) ! {
 
 	if sit.is_sit(f) {
 		sit_r := sit.parse(mut f) or { panic("Couldn't parse SIT!") }
-		println("SIT!")
 		mut mkey := ?[]u8(none)
 		if mk := config.mkey {
 			if mk.len % 2 == 0 {
 				mkey = hex.decode(mk) or { panic('Unable to decode given MKey: ${mk}')}
 			}
 		} else {
-			println("Not given MKey! Looking for it in a rsrc file.")
+			println("Not given MKey! Looking for it in a resource (rsrc) fork.")
 			// see if .rcrs file exists
 			res := rsrc.new_resource_fork_from_file(sit_file_path) or { panic('No MKey found or given: ${err}') }
 			// Not none, see if MKey is there
 			if 'MKey' in res.tree { // bad does v support map interface?
 				mkey_rsrc := res.tree['MKey'].clone()
 				if mkey_rsrc.len == 1 && 0 in mkey_rsrc {
-					println("\tFound MKey in a resource (rsrc) fork.")
+					println("\tFound MKey in a rsrc fork.")
 					mkey = mkey_rsrc[0].data.clone()
 				} else {
 					dump(mkey_rsrc)
@@ -220,7 +234,6 @@ fn kasper(config Config) ! {
 		
 		} 
 
-
 		mut check_passwd := config.passwd
 		if config.passwd.len > 8 {
 			check_passwd = config.passwd[0 .. 8]
@@ -228,13 +241,14 @@ fn kasper(config Config) ! {
 		} 
 
 		if mk := mkey {
+			mut sw := time.new_stopwatch()
+			sw.start()
 
 			mut pb_cnt := u64(1)
 			if config.passwd.contains('*') && config.wildcard {
 				// how many? and update progress bar
-				println("Calculating number of guesses. Please wait...")
 				pb_cnt = sit.calc_samples(config.passwd.count('*'))
-				println("\tCalculated ${pb_cnt} guesses.")
+				println("Calculating ${pb_cnt} guesses...")
 			}
 			mut pb := progressbar.progressbar_new("SIT", pb_cnt)
 			
@@ -251,13 +265,21 @@ fn kasper(config Config) ! {
 			}
 
 			// starting consumer
-			con := go consumer(result_ch, mut pb, pb.progessbar_max())
+			con := go consumer(result_ch, mut pb, config.num_threads)
 
 			// start filling the queue, don't expect many (if any) results
 			sit.replace_asterix(sit_config, query_ch)
 
+			// Send done to exit
+			for _ in 0 .. config.num_threads {
+				query_ch <- ""
+			}
+
 			con.wait()	
 
+			sw.stop()
+
+			println("Checked ${pb_cnt} total passwords in ${sw.elapsed()}")
 		} else {
 			panic('encpyted but NO MKey found!')
 		}
