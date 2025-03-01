@@ -23,7 +23,7 @@ const sit5_archiveflags_crypted = 0x80
 const debug = true
 
 @[xdoc: 'Kasper: a sit5 password recovery tool.']
-@[version: '0.0.7']
+@[version: '0.0.8']
 @[name: 'kasper']
 pub struct Config {
 	passwd			string 	@[short: p; xdoc: 'The password to try']
@@ -43,9 +43,9 @@ fn kaspser_five(config Config, mut f os.File) ! {
 	if config.passwd.contains('*') && config.wildcard {
 		// how many? and update progress bar
 		pb_cnt = sit.calc_samples(config.passwd.count('*'))
-		println("Calculating ${pb_cnt} guesses...")	
+		println("Calculating ${pb_cnt} guesses for SIT5 achive...")	
 	}
-	mut pb := progressbar.progressbar_new("SIT5", pb_cnt) 
+	mut pb := progressbar.progressbar_new(pb_cnt) 
 
 	mut archive_hash := []u8{len: sit.sit5_key_length, cap: sit.sit5_key_length, init: 0}
 
@@ -248,9 +248,9 @@ fn kasper(config Config) ! {
 			if config.passwd.contains('*') && config.wildcard {
 				// how many? and update progress bar
 				pb_cnt = sit.calc_samples(config.passwd.count('*'))
-				println("Calculating ${pb_cnt} guesses...")
+				println("Calculating ${pb_cnt} guesses in SIT archive...")
 			}
-			mut pb := progressbar.progressbar_new("SIT", pb_cnt)
+			mut pb := progressbar.progressbar_new(pb_cnt)
 			
 			sit_config := sit.new_config(
 				config.sit, []u8{}, config.wildcard, 
