@@ -109,9 +109,8 @@ fn check_sit(folders []&SitFolder) bool {
 pub fn check_sit_password(passwd string, config SitConfig) string {
 	s := config.sit or { dump(config); panic('No Sit!') }
 	if ek := s.entrykey {
-		mut des_handle := key_for_password_data(passwd, ek, config.mkey)
-
-		if des_handle != none {
+		
+		if password(passwd, ek, config.mkey) {
 			return passwd
 		} else {
 			return ""

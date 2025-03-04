@@ -349,6 +349,66 @@ fn stuffit_des_crypt(mut data []u8, ks &StuffItDESKeySchedule, enc bool) {
 	bytes.set_uint_32_be(mut data, 4, reverse_bits(left))
 }
 
+// password, Just checks if good
+pub fn password(password string, entrykey []u8, mkey ?[]u8) bool {
+	if mk := mkey { // not none, XADStuffitParser ONLY calls this if not none, see decryptHandleForEntryWithDictionary
+		if mk.len != 8 {
+			// Depends on len 8 below
+			panic("mkey is NOT length 8!")
+		} else {
+			// Weirdly not checked in orignal
+			if entrykey.len < 16 {
+				panic("entrykey length less than 16 (${entrykey.len})!")
+			}
+
+						mut ks:= &StuffItDESKeySchedule{subkeys: [][]u32{len: 16, init: []u32{len: 2}}}
+
+			// Is ther a better way?
+			mut passblock := [u8(0),0,0,0,0,0,0,0]
+			mut length := if password.len > 8 { 8 } else { password.len }
+			for i in 0 .. length {
+				passblock[i] = password[i]
+			}
+
+			// Calculate archive key and IV from password and mkey
+			mut archivekey := []u8{len: 8}
+			mut archiveiv  := []u8{len: 8}
+
+			initialkey := [u8(0x01), 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]
+			for i := 0; i < 8; i++ {
+				archivekey[i] = initialkey[i]^(passblock[i]&0x7F)
+			}
+
+			stuffit_des_setkey(initialkey, mut &ks)
+			stuffit_des_crypt(mut archivekey, ks, true)
+
+			// copy mk into achiveiv
+			for i := 0; i < 8; i++ {
+				archiveiv[i] = mk[i]
+			}
+			stuffit_des_setkey(archivekey, mut &ks)
+			stuffit_des_crypt(mut archiveiv, ks, false)
+
+			// Verify the password.
+			mut verifyblock := [u8(0),0,0,0,0,0,0,4]
+			for i := 0; i < 4; i++ {
+				verifyblock[i] = archiveiv[i]  // only the first 4 will match
+			}
+			
+			stuffit_des_setkey(archivekey, mut &ks)
+			stuffit_des_crypt(mut verifyblock, ks, true)
+
+			if verifyblock[4 .. ] != archiveiv[4 .. ] {
+				return false
+			} else {
+				return true
+			}
+		}
+	} else {
+		panic("mkey is not set!")
+	}
+}
+
 // Calculate archive key and IV from password and mkey
 pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStuffItDESHandle {
 
@@ -398,8 +458,8 @@ pub fn key_for_password_data(password string, entrykey []u8, mkey ?[]u8) ?XADStu
 			
 			stuffit_des_setkey(archivekey, mut &ks)
 			stuffit_des_crypt(mut verifyblock, ks, true)
+
 			if verifyblock[4 .. ] != archiveiv[4 .. ] {
-				// println('${verifyblock} ${archiveiv}')
 				return none
 			}
 
